@@ -1,0 +1,355 @@
+{
+  "schema_version": "1.0",
+  "id": "golden-widgets",
+  "mastery_path_id": "",
+  "book_id": null,
+  "kb_ids": [
+    "hf"
+  ],
+  "language": "zh",
+  "title": "频率响应 · 交互基线",
+  "plan": {
+    "daily_minutes": 10,
+    "exam_date": null,
+    "timezone": "Asia/Shanghai",
+    "target_retention": 0.9
+  },
+  "concepts": [
+    {
+      "id": "c-gw-rc",
+      "key": "de7dfe9d66ab9ca8",
+      "name": "RC 低通滤波器",
+      "aliases": [],
+      "definition": "由电阻与电容构成的一阶低通网络，高频分量被电容旁路。",
+      "formulas": [
+        {
+          "latex": "H(j\\omega) = \\frac{1}{1 + j\\omega RC}",
+          "conditions": "一阶无源 RC 网络，输出取自电容两端",
+          "variables": {
+            "H(j\\omega)": "电压传输函数",
+            "R": "电阻 / Ω",
+            "C": "电容 / F"
+          },
+          "source_ids": [
+            "src-gw-ch5-1"
+          ]
+        }
+      ],
+      "prerequisites": [],
+      "difficulty": "medium",
+      "knowledge_type": "concept",
+      "source_ids": [
+        "src-gw-ch5-1"
+      ],
+      "summary_one_line": "低频通过、高频衰减。",
+      "coverage": "kb",
+      "knowledge_point_id": ""
+    },
+    {
+      "id": "c-gw-cutoff",
+      "key": "27802e4b9f4430d5",
+      "name": "截止频率",
+      "aliases": [],
+      "definition": "幅值下降到低频值的 0.707 倍时对应的频率。",
+      "formulas": [
+        {
+          "latex": "f_c = \\frac{1}{2\\pi RC}",
+          "conditions": "一阶 RC 低通",
+          "variables": {
+            "f_c": "截止频率 / Hz",
+            "R": "电阻 / Ω",
+            "C": "电容 / F"
+          },
+          "source_ids": [
+            "src-gw-ch5-1"
+          ]
+        }
+      ],
+      "prerequisites": [
+        "c-gw-rc"
+      ],
+      "difficulty": "medium",
+      "knowledge_type": "concept",
+      "source_ids": [
+        "src-gw-ch5-1"
+      ],
+      "summary_one_line": "截止频率由时间常数 RC 决定。",
+      "coverage": "kb",
+      "knowledge_point_id": ""
+    },
+    {
+      "id": "c-gw-slope",
+      "key": "20395e2da69cd280",
+      "name": "阻带衰减斜率",
+      "aliases": [],
+      "definition": "一阶低通在截止频率以上按每十倍频 20 dB 下降。",
+      "formulas": [],
+      "prerequisites": [
+        "c-gw-cutoff"
+      ],
+      "difficulty": "hard",
+      "knowledge_type": "concept",
+      "source_ids": [
+        "src-gw-ch5-2"
+      ],
+      "summary_one_line": "一阶网络的阻带斜率是每十倍频 20 dB。",
+      "coverage": "kb",
+      "knowledge_point_id": ""
+    }
+  ],
+  "sections": [
+    {
+      "id": "sec-gw-filters",
+      "title": "RC 低通滤波器的频率响应",
+      "concept_ids": [
+        "c-gw-rc",
+        "c-gw-cutoff",
+        "c-gw-slope"
+      ],
+      "order": 1,
+      "blocks": [
+        {
+          "kind": "prose",
+          "text": "一阶 RC 低通的传输函数为 $H(j\\omega) = \\frac{1}{1 + j\\omega RC}$。当频率等于截止频率 $f_c = \\frac{1}{2\\pi RC}$ 时，幅值下降到低频值的 $1/\\sqrt{2}$。"
+        },
+        {
+          "kind": "widget",
+          "widget_id": "w-gw-gain"
+        },
+        {
+          "kind": "widget",
+          "widget_id": "w-gw-ripple"
+        },
+        {
+          "kind": "figure",
+          "figure_id": "fig-gw-bar"
+        },
+        {
+          "kind": "figure",
+          "figure_id": "fig-gw-plot"
+        },
+        {
+          "kind": "callout",
+          "tone": "warning",
+          "text": "拖动滑块时注意参数单位：$f$ 取 Hz，$R$ 取 Ω，$C$ 取 F；混用单位会得到量级错误的曲线。"
+        },
+        {
+          "kind": "item",
+          "item_id": "item-gw-numeric"
+        },
+        {
+          "kind": "item",
+          "item_id": "item-gw-flashcard"
+        },
+        {
+          "kind": "summary",
+          "text": "截止频率 $f_c = \\frac{1}{2\\pi RC}$；一阶低通在截止频率以上按每十倍频 20 dB 衰减。"
+        }
+      ]
+    }
+  ],
+  "figures": [
+    {
+      "id": "fig-gw-bar",
+      "kind": "bar",
+      "title": "不同负载条件下电压传输系数实测值（窄屏压力用例）",
+      "caption": "12 个长中文标签；375px 视口下需要横向滚动或按槽宽截断。",
+      "svg": "",
+      "tikz": "",
+      "points": [],
+      "bar_labels": [
+        "空载条件下电压传输系数实测平均值",
+        "额定负载条件下电压传输系数实测值",
+        "轻载条件下电压传输系数实测平均值",
+        "重载条件下电压传输系数实测平均值",
+        "容性负载条件下传输系数测量结果",
+        "感性负载条件下传输系数测量结果",
+        "纯电阻负载条件下传输系数测量值",
+        "温度升高后传输系数变化量测量值",
+        "频率偏移百分之一时传输系数变化",
+        "电源电压下降时传输系数变化测量",
+        "输入端加隔离电阻后传输系数测量",
+        "输出端加隔直电容后传输系数测量"
+      ],
+      "bar_values": [
+        0.98,
+        0.95,
+        0.97,
+        0.92,
+        0.94,
+        0.93,
+        0.96,
+        0.89,
+        0.9,
+        0.87,
+        0.85,
+        0.82
+      ],
+      "panels": [],
+      "x_label": "负载与测试条件",
+      "y_label": "传输系数",
+      "unit": "",
+      "source_ids": [
+        "src-gw-ch5-2"
+      ]
+    },
+    {
+      "id": "fig-gw-plot",
+      "kind": "plot",
+      "title": "一阶低通归一化幅频特性（长轴标签压力用例）",
+      "caption": "横轴标签较长，窄屏下与刻度标签争夺左右留白。",
+      "svg": "",
+      "tikz": "",
+      "points": [
+        [
+          0.0,
+          1.0
+        ],
+        [
+          200.0,
+          0.98
+        ],
+        [
+          400.0,
+          0.9
+        ],
+        [
+          600.0,
+          0.78
+        ],
+        [
+          800.0,
+          0.62
+        ],
+        [
+          1000.0,
+          0.5
+        ]
+      ],
+      "bar_labels": [],
+      "bar_values": [],
+      "panels": [],
+      "x_label": "频率 / Hz",
+      "y_label": "归一化幅值",
+      "unit": "倍",
+      "source_ids": [
+        "src-gw-ch5-1"
+      ]
+    }
+  ],
+  "widgets": [
+    {
+      "id": "w-gw-gain",
+      "kind": "slider_formula",
+      "title": "RC 低通幅频特性",
+      "formula_latex": "\\left\\vert H \\right\\vert = \\frac{1}{\\sqrt{1 + (2\\pi f RC)^{2}}}",
+      "expression": "1/sqrt(1+(2*pi*f*0.001)**2)",
+      "parameter": "f",
+      "minimum": 0.0,
+      "maximum": 10000.0,
+      "step": 100.0,
+      "unit": "倍",
+      "precision": 3,
+      "samples": 41,
+      "source_ids": [
+        "src-gw-ch5-1"
+      ]
+    },
+    {
+      "id": "w-gw-ripple",
+      "kind": "slider_plot",
+      "title": "补偿网络幅频特性（抛物线近似）",
+      "formula_latex": "A(f) = 1.5 - 0.5\\left(\\frac{f}{10000}\\right)^{2}",
+      "expression": "1.5 - 0.5*(f/10000)**2",
+      "parameter": "f",
+      "minimum": 0.0,
+      "maximum": 10000.0,
+      "step": 100.0,
+      "unit": "倍",
+      "precision": 3,
+      "samples": 41,
+      "source_ids": [
+        "src-gw-ch5-2"
+      ]
+    }
+  ],
+  "items": [
+    {
+      "id": "item-gw-numeric",
+      "concept_ids": [
+        "c-gw-cutoff"
+      ],
+      "kind": "numeric",
+      "stem": "某 RC 低通滤波器 $R = 1\\,\\mathrm{k}\\Omega$、$C = 1\\,\\mu\\mathrm{F}$，求截止频率 $f_c$（Hz）。",
+      "options": [],
+      "answer": {
+        "choice_index": null,
+        "value": 159.155,
+        "tolerance": 0.5,
+        "text": ""
+      },
+      "explanation": "$f_c = 1/(2\\pi RC) = 1/(2\\pi \\times 1000 \\times 1e-6) \\approx 159.155\\,\\mathrm{Hz}$。",
+      "self_check": "",
+      "pitfalls": [],
+      "assumptions": [],
+      "study_table": "",
+      "difficulty": "medium",
+      "source_ids": [
+        "src-gw-ch5-1"
+      ],
+      "variant_of": null
+    },
+    {
+      "id": "item-gw-flashcard",
+      "concept_ids": [
+        "c-gw-rc"
+      ],
+      "kind": "flashcard",
+      "stem": "写出 RC 低通滤波器截止频率与元件参数的关系式。",
+      "options": [],
+      "answer": {
+        "choice_index": null,
+        "value": null,
+        "tolerance": 0.0,
+        "text": "f_c = \\frac{1}{2\\pi RC}"
+      },
+      "explanation": "截止频率由时间常数决定：$f_c = \\frac{1}{2\\pi RC}$，增大 $R$ 或 $C$ 都会降低截止频率。",
+      "self_check": "",
+      "pitfalls": [],
+      "assumptions": [],
+      "study_table": "",
+      "difficulty": "easy",
+      "source_ids": [
+        "src-gw-ch5-1"
+      ],
+      "variant_of": null
+    }
+  ],
+  "sources": {
+    "src-gw-ch5-1": {
+      "id": "src-gw-ch5-1",
+      "kind": "book_page",
+      "title": "第5章 5.1 RC 低通滤波器",
+      "kb": "hf",
+      "ref": "chapter5/section-5.1",
+      "snippet": "截止频率 f_c = 1/(2πRC)，幅频特性随频率升高而下降。",
+      "quote_hash": ""
+    },
+    "src-gw-ch5-2": {
+      "id": "src-gw-ch5-2",
+      "kind": "book_page",
+      "title": "第5章 5.2 频率响应测量",
+      "kb": "hf",
+      "ref": "chapter5/section-5.2",
+      "snippet": "测量幅频特性时按倍频程取点，并记录相位变化。",
+      "quote_hash": ""
+    }
+  },
+  "quality": {
+    "passed": true,
+    "warnings": [],
+    "gates": []
+  },
+  "assets": [],
+  "content_hash": "278d70ccf10d96b44bf25c64ed2d065491da4d900b3a1cc2dcf9c63eb3f08553"
+}

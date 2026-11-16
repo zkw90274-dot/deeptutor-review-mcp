@@ -1,0 +1,244 @@
+{
+  "schema_version": "1.0",
+  "id": "golden-formula",
+  "mastery_path_id": "",
+  "book_id": null,
+  "kb_ids": [
+    "hf"
+  ],
+  "language": "zh",
+  "title": "示例课程 · 公式与题型基线",
+  "plan": {
+    "daily_minutes": 10,
+    "exam_date": null,
+    "timezone": "Asia/Shanghai",
+    "target_retention": 0.9
+  },
+  "concepts": [
+    {
+      "id": "c-gf-mixer",
+      "key": "ba4adf5bf3a9b9fa",
+      "name": "混频器",
+      "aliases": [
+        "变频器"
+      ],
+      "definition": "利用本振信号与射频信号相乘，把射频频率变换为中频的电路。",
+      "formulas": [
+        {
+          "latex": "f_{IF} = f_{LO} - f_{RF}",
+          "conditions": "下变频，且本振频率高于射频频率",
+          "variables": {
+            "f_{IF}": "中频 / Hz",
+            "f_{LO}": "本振频率 / Hz",
+            "f_{RF}": "射频频率 / Hz"
+          },
+          "source_ids": [
+            "src-gf-ch4-1"
+          ]
+        }
+      ],
+      "prerequisites": [],
+      "difficulty": "medium",
+      "knowledge_type": "concept",
+      "source_ids": [
+        "src-gf-ch4-1"
+      ],
+      "summary_one_line": "中频等于本振频率与射频频率之差。",
+      "coverage": "kb",
+      "knowledge_point_id": ""
+    },
+    {
+      "id": "c-gf-gain",
+      "key": "09e1db870ec6ec43",
+      "name": "变频增益",
+      "aliases": [
+        "转换增益"
+      ],
+      "definition": "混频器中频输出电压与射频输入电压之比的分贝值。",
+      "formulas": [
+        {
+          "latex": "G_c = 20\\log_{10}\\frac{U_{IF}}{U_{RF}}",
+          "conditions": "输入输出端口均匹配",
+          "variables": {
+            "G_c": "变频增益 / dB",
+            "U_{IF}": "中频输出电压 / V",
+            "U_{RF}": "射频输入电压 / V"
+          },
+          "source_ids": [
+            "src-gf-ch4-2"
+          ]
+        }
+      ],
+      "prerequisites": [],
+      "difficulty": "medium",
+      "knowledge_type": "concept",
+      "source_ids": [
+        "src-gf-ch4-2"
+      ],
+      "summary_one_line": "电压比每增大十倍，变频增益增加 20 dB。",
+      "coverage": "kb",
+      "knowledge_point_id": ""
+    }
+  ],
+  "sections": [
+    {
+      "id": "sec-gf-mixer",
+      "title": "混频与变频增益",
+      "concept_ids": [
+        "c-gf-mixer",
+        "c-gf-gain"
+      ],
+      "order": 1,
+      "blocks": [
+        {
+          "kind": "prose",
+          "text": "混频器是超外差接收机的核心部件：本振与射频输入相乘后，差频分量被选出作为中频，即 $f_{IF} = f_{LO} - f_{RF}$。\n\n中频频率固定，后续各级滤波器才能按固定中心频率设计：\n\n$$f_{IF} = f_{LO} - f_{RF}$$\n\n因此射频频率改变时，只需同步调整本振频率。"
+        },
+        {
+          "kind": "callout",
+          "tone": "tip",
+          "text": "判断上变频还是下变频时，先比较本振与射频的大小；本振更高时为下变频，$f_{IF} = f_{LO} - f_{RF}$。"
+        },
+        {
+          "kind": "item",
+          "item_id": "item-gf-choice"
+        },
+        {
+          "kind": "item",
+          "item_id": "item-gf-numeric"
+        },
+        {
+          "kind": "item",
+          "item_id": "item-gf-flashcard"
+        },
+        {
+          "kind": "summary",
+          "text": "混频器的中频 $f_{IF} = f_{LO} - f_{RF}$；变频增益 $G_c = 20\\log_{10}(U_{IF}/U_{RF})$。"
+        }
+      ]
+    }
+  ],
+  "figures": [],
+  "widgets": [],
+  "items": [
+    {
+      "id": "item-gf-choice",
+      "concept_ids": [
+        "c-gf-mixer"
+      ],
+      "kind": "single_choice",
+      "stem": "某下变频混频器的本振频率为 $f_{LO} = 10\\,\\mathrm{MHz}$，射频输入为 $f_{RF} = 7\\,\\mathrm{MHz}$，中频 $f_{IF}$ 是多少？",
+      "options": [
+        {
+          "label": "A",
+          "text": "1 MHz"
+        },
+        {
+          "label": "B",
+          "text": "3 MHz"
+        },
+        {
+          "label": "C",
+          "text": "7 MHz"
+        },
+        {
+          "label": "D",
+          "text": "17 MHz"
+        }
+      ],
+      "answer": {
+        "choice_index": 1,
+        "value": null,
+        "tolerance": 0.0,
+        "text": ""
+      },
+      "explanation": "下变频时中频等于两频率之差：$f_{IF} = f_{LO} - f_{RF} = 10 - 7 = 3\\,\\mathrm{MHz}$，所以选项 B（3 MHz）正确。",
+      "self_check": "",
+      "pitfalls": [],
+      "assumptions": [],
+      "study_table": "",
+      "difficulty": "easy",
+      "source_ids": [
+        "src-gf-ch4-1"
+      ],
+      "variant_of": null
+    },
+    {
+      "id": "item-gf-numeric",
+      "concept_ids": [
+        "c-gf-gain"
+      ],
+      "kind": "numeric",
+      "stem": "某混频器射频输入电压 $U_{RF} = 20\\,\\mathrm{mV}$，中频输出电压 $U_{IF} = 200\\,\\mathrm{mV}$，求变频增益 $G_c$（dB）。",
+      "options": [],
+      "answer": {
+        "choice_index": null,
+        "value": 20.0,
+        "tolerance": 0.1,
+        "text": ""
+      },
+      "explanation": "变频增益按电压比的分贝值定义：\n\n$$G_c = 20\\log_{10}\\frac{U_{IF}}{U_{RF}}$$\n\n代入 $U_{IF} = 200\\,\\mathrm{mV}$、$U_{RF} = 20\\,\\mathrm{mV}$，得 $G_c = 20\\log_{10}10 = 20\\,\\mathrm{dB}$。\n\n这里的关键是：电压比是 10 倍，对应 20 dB；若用功率比计算，同样的 10 倍功率才对应 10 dB。分母必须是射频输入电压，而不是本振电压，否则会得到一个与器件无关的数值。\n\n实际测量时输入输出端口都要匹配到 50 Ω，否则分压会直接叠加到测量结果里，使读数偏离器件本身的增益。",
+      "self_check": "",
+      "pitfalls": [],
+      "assumptions": [],
+      "study_table": "",
+      "difficulty": "medium",
+      "source_ids": [
+        "src-gf-ch4-2"
+      ],
+      "variant_of": null
+    },
+    {
+      "id": "item-gf-flashcard",
+      "concept_ids": [
+        "c-gf-mixer"
+      ],
+      "kind": "flashcard",
+      "stem": "写出下变频混频器中频频率与输入频率的关系式。",
+      "options": [],
+      "answer": {
+        "choice_index": null,
+        "value": null,
+        "tolerance": 0.0,
+        "text": "f_{IF} = f_{LO} - f_{RF}"
+      },
+      "explanation": "本振与射频相乘后，差频分量即中频：$f_{IF} = f_{LO} - f_{RF}$（下变频时本振频率高于射频频率）。",
+      "self_check": "",
+      "pitfalls": [],
+      "assumptions": [],
+      "study_table": "",
+      "difficulty": "easy",
+      "source_ids": [
+        "src-gf-ch4-1"
+      ],
+      "variant_of": null
+    }
+  ],
+  "sources": {
+    "src-gf-ch4-1": {
+      "id": "src-gf-ch4-1",
+      "kind": "book_page",
+      "title": "第4章 4.1 混频器",
+      "kb": "hf",
+      "ref": "chapter4/section-4.1",
+      "snippet": "混频器把射频信号变换为中频，本振与射频频率之差即中频。",
+      "quote_hash": ""
+    },
+    "src-gf-ch4-2": {
+      "id": "src-gf-ch4-2",
+      "kind": "book_page",
+      "title": "第4章 4.2 变频增益",
+      "kb": "hf",
+      "ref": "chapter4/section-4.2",
+      "snippet": "变频增益用中频输出与射频输入电压比的分贝值表示。",
+      "quote_hash": ""
+    }
+  },
+  "quality": {
+    "passed": true,
+    "warnings": [],
+    "gates": []
+  },
+  "assets": [],
+  "content_hash": "de93a28080d27a1737dca28d5454192b5388ce59b029e8a9731e0a8a22799625"
+}

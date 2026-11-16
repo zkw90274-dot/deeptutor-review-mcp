@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "id": "review",
+  "distribution": "deeptutor-review",
+  "requires": [
+    "mastery"
+  ],
+  "optional": [],
+  "paths": [
+    "deeptutor/review"
+  ],
+  "capabilities": {},
+  "loops": {},
+  "tools": {
+    "review_specs": {
+      "class_path": "deeptutor.review.agent_tools:ReviewSpecsTool",
+      "order": 60
+    },
+    "review_today": {
+      "class_path": "deeptutor.review.agent_tools:ReviewTodayTool",
+      "order": 61
+    },
+    "review_attempt": {
+      "class_path": "deeptutor.review.agent_tools:ReviewAttemptTool",
+      "order": 62
+    },
+    "review_weakness": {
+      "class_path": "deeptutor.review.agent_tools:ReviewWeaknessTool",
+      "order": 63
+    },
+    "review_export_link": {
+      "class_path": "deeptutor.review.agent_tools:ReviewExportLinkTool",
+      "order": 64
+    },
+    "review_generate": {
+      "class_path": "deeptutor.review.agent_tools:ReviewGenerateTool",
+      "order": 65
+    },
+    "review_hint": {
+      "class_path": "deeptutor.review.agent_tools:ReviewHintTool",
+      "order": 66
+    },
+    "review_plan": {
+      "class_path": "deeptutor.review.agent_tools:ReviewPlanTool",
+      "order": 67
+    }
+  },
+  "routes": [
+    {
+      "reference": "deeptutor.review.api:router",
+      "options": {
+        "prefix": "/api/review",
+        "tags": [
+          "review"
+        ]
+      },
+      "auth": "authenticated",
+      "order": 655
+    }
+  ],
+  "commands": [],
+  "navigation": [
+    "/review",
+    "/api/review/ui"
+  ],
+  "services": [],
+  "requirements": [],
+  "executables": [],
+  "http_paths": [
+    "/api/review"
+  ]
+}

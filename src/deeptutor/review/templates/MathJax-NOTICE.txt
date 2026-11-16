@@ -1,0 +1,5 @@
+MathJax (tex-svg component)
+Copyright (c) 2009-2023 The MathJax Consortium
+Licensed under the Apache License, Version 2.0.
+See MathJax-LICENSE.txt in this directory.
+https://www.mathjax.org/

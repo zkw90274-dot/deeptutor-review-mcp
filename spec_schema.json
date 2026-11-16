@@ -1,0 +1,1101 @@
+{
+  "$defs": {
+    "Answer": {
+      "additionalProperties": false,
+      "properties": {
+        "choice_index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Choice Index"
+        },
+        "text": {
+          "default": "",
+          "title": "Text",
+          "type": "string"
+        },
+        "tolerance": {
+          "default": 0.0,
+          "title": "Tolerance",
+          "type": "number"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "title": "Answer",
+      "type": "object"
+    },
+    "AssetRef": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "default": "",
+          "title": "Kind",
+          "type": "string"
+        },
+        "path": {
+          "default": "",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "default": "",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "AssetRef",
+      "type": "object"
+    },
+    "CalloutBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "callout",
+          "default": "callout",
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "tone": {
+          "default": "info",
+          "enum": [
+            "info",
+            "warning",
+            "tip"
+          ],
+          "title": "Tone",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "CalloutBlock",
+      "type": "object"
+    },
+    "Concept": {
+      "additionalProperties": false,
+      "properties": {
+        "aliases": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Aliases",
+          "type": "array"
+        },
+        "coverage": {
+          "default": "kb",
+          "enum": [
+            "kb",
+            "supplement",
+            "inferred"
+          ],
+          "title": "Coverage",
+          "type": "string"
+        },
+        "definition": {
+          "default": "",
+          "title": "Definition",
+          "type": "string"
+        },
+        "difficulty": {
+          "default": "medium",
+          "enum": [
+            "easy",
+            "medium",
+            "hard"
+          ],
+          "title": "Difficulty",
+          "type": "string"
+        },
+        "formulas": {
+          "items": {
+            "$ref": "#/$defs/Formula"
+          },
+          "title": "Formulas",
+          "type": "array"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "key": {
+          "default": "",
+          "title": "Key",
+          "type": "string"
+        },
+        "knowledge_point_id": {
+          "default": "",
+          "title": "Knowledge Point Id",
+          "type": "string"
+        },
+        "knowledge_type": {
+          "default": "concept",
+          "enum": [
+            "memory",
+            "concept",
+            "procedure",
+            "design"
+          ],
+          "title": "Knowledge Type",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "prerequisites": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Prerequisites",
+          "type": "array"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        },
+        "summary_one_line": {
+          "default": "",
+          "title": "Summary One Line",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "title": "Concept",
+      "type": "object"
+    },
+    "FigureBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "figure_id": {
+          "minLength": 1,
+          "title": "Figure Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "figure",
+          "default": "figure",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "figure_id"
+      ],
+      "title": "FigureBlock",
+      "type": "object"
+    },
+    "FigureMark": {
+      "additionalProperties": false,
+      "description": "A labelled point on a panel (an extremum, zero crossing, or annotation).",
+      "properties": {
+        "text": {
+          "default": "",
+          "title": "Text",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "value"
+      ],
+      "title": "FigureMark",
+      "type": "object"
+    },
+    "FigurePanel": {
+      "additionalProperties": false,
+      "description": "One panel of a shared-x-axis engineering figure.\n\n``shear`` panels draw piecewise-constant segments (Q diagrams); ``moment``\nand ``line`` panels draw a polyline/area through points. Positive and\nnegative values are coloured differently and always labelled with their\nnumeric value, so colour is not the only information channel.",
+      "properties": {
+        "kind": {
+          "default": "line",
+          "enum": [
+            "shear",
+            "moment",
+            "line"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "marks": {
+          "items": {
+            "$ref": "#/$defs/FigureMark"
+          },
+          "title": "Marks",
+          "type": "array"
+        },
+        "points": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Points",
+          "type": "array"
+        },
+        "segments": {
+          "items": {
+            "maxItems": 3,
+            "minItems": 3,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Segments",
+          "type": "array"
+        },
+        "title": {
+          "default": "",
+          "title": "Title",
+          "type": "string"
+        },
+        "unit": {
+          "default": "",
+          "title": "Unit",
+          "type": "string"
+        }
+      },
+      "title": "FigurePanel",
+      "type": "object"
+    },
+    "FigureSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "bar_labels": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Bar Labels",
+          "type": "array"
+        },
+        "bar_values": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Bar Values",
+          "type": "array"
+        },
+        "caption": {
+          "default": "",
+          "title": "Caption",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "default": "placeholder",
+          "title": "Kind",
+          "type": "string"
+        },
+        "panels": {
+          "items": {
+            "$ref": "#/$defs/FigurePanel"
+          },
+          "maxItems": 4,
+          "title": "Panels",
+          "type": "array"
+        },
+        "points": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Points",
+          "type": "array"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        },
+        "svg": {
+          "default": "",
+          "title": "Svg",
+          "type": "string"
+        },
+        "tikz": {
+          "default": "",
+          "maxLength": 20000,
+          "title": "Tikz",
+          "type": "string"
+        },
+        "title": {
+          "default": "",
+          "title": "Title",
+          "type": "string"
+        },
+        "unit": {
+          "default": "",
+          "title": "Unit",
+          "type": "string"
+        },
+        "x_label": {
+          "default": "",
+          "title": "X Label",
+          "type": "string"
+        },
+        "y_label": {
+          "default": "",
+          "title": "Y Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "FigureSpec",
+      "type": "object"
+    },
+    "Formula": {
+      "additionalProperties": false,
+      "properties": {
+        "conditions": {
+          "default": "",
+          "title": "Conditions",
+          "type": "string"
+        },
+        "latex": {
+          "minLength": 1,
+          "title": "Latex",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        },
+        "variables": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Variables",
+          "type": "object"
+        }
+      },
+      "required": [
+        "latex"
+      ],
+      "title": "Formula",
+      "type": "object"
+    },
+    "GateResult": {
+      "additionalProperties": false,
+      "properties": {
+        "details": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Details",
+          "type": "array"
+        },
+        "gate": {
+          "title": "Gate",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "title": "Message",
+          "type": "string"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "gate",
+        "passed"
+      ],
+      "title": "GateResult",
+      "type": "object"
+    },
+    "Item": {
+      "additionalProperties": false,
+      "properties": {
+        "answer": {
+          "$ref": "#/$defs/Answer"
+        },
+        "assumptions": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 3,
+          "title": "Assumptions",
+          "type": "array"
+        },
+        "concept_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Concept Ids",
+          "type": "array"
+        },
+        "difficulty": {
+          "default": "medium",
+          "enum": [
+            "easy",
+            "medium",
+            "hard"
+          ],
+          "title": "Difficulty",
+          "type": "string"
+        },
+        "explanation": {
+          "default": "",
+          "title": "Explanation",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "single_choice",
+            "numeric",
+            "short_answer",
+            "flashcard"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/Option"
+          },
+          "title": "Options",
+          "type": "array"
+        },
+        "pitfalls": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 3,
+          "title": "Pitfalls",
+          "type": "array"
+        },
+        "self_check": {
+          "default": "",
+          "maxLength": 600,
+          "title": "Self Check",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        },
+        "stem": {
+          "minLength": 1,
+          "title": "Stem",
+          "type": "string"
+        },
+        "study_table": {
+          "default": "",
+          "maxLength": 4000,
+          "title": "Study Table",
+          "type": "string"
+        },
+        "variant_of": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Variant Of"
+        }
+      },
+      "required": [
+        "id",
+        "concept_ids",
+        "kind",
+        "stem",
+        "answer"
+      ],
+      "title": "Item",
+      "type": "object"
+    },
+    "ItemBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "item_id": {
+          "minLength": 1,
+          "title": "Item Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "item",
+          "default": "item",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "item_id"
+      ],
+      "title": "ItemBlock",
+      "type": "object"
+    },
+    "Option": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "text"
+      ],
+      "title": "Option",
+      "type": "object"
+    },
+    "ProseBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "prose",
+          "default": "prose",
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "ProseBlock",
+      "type": "object"
+    },
+    "QualityReport": {
+      "additionalProperties": false,
+      "properties": {
+        "gates": {
+          "items": {
+            "$ref": "#/$defs/GateResult"
+          },
+          "title": "Gates",
+          "type": "array"
+        },
+        "passed": {
+          "default": true,
+          "title": "Passed",
+          "type": "boolean"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "title": "QualityReport",
+      "type": "object"
+    },
+    "ReviewPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "daily_minutes": {
+          "default": 15,
+          "maximum": 120,
+          "minimum": 1,
+          "title": "Daily Minutes",
+          "type": "integer"
+        },
+        "exam_date": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exam Date"
+        },
+        "target_retention": {
+          "default": 0.9,
+          "maximum": 0.99,
+          "minimum": 0.7,
+          "title": "Target Retention",
+          "type": "number"
+        },
+        "timezone": {
+          "default": "Asia/Shanghai",
+          "title": "Timezone",
+          "type": "string"
+        }
+      },
+      "title": "ReviewPlan",
+      "type": "object"
+    },
+    "Section": {
+      "additionalProperties": false,
+      "properties": {
+        "blocks": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "callout": "#/$defs/CalloutBlock",
+                "figure": "#/$defs/FigureBlock",
+                "item": "#/$defs/ItemBlock",
+                "prose": "#/$defs/ProseBlock",
+                "summary": "#/$defs/SummaryBlock",
+                "widget": "#/$defs/WidgetBlock"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/ProseBlock"
+              },
+              {
+                "$ref": "#/$defs/CalloutBlock"
+              },
+              {
+                "$ref": "#/$defs/FigureBlock"
+              },
+              {
+                "$ref": "#/$defs/WidgetBlock"
+              },
+              {
+                "$ref": "#/$defs/ItemBlock"
+              },
+              {
+                "$ref": "#/$defs/SummaryBlock"
+              }
+            ]
+          },
+          "title": "Blocks",
+          "type": "array"
+        },
+        "concept_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Concept Ids",
+          "type": "array"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "order": {
+          "default": 0,
+          "title": "Order",
+          "type": "integer"
+        },
+        "title": {
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title"
+      ],
+      "title": "Section",
+      "type": "object"
+    },
+    "SourceRef": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kb": {
+          "default": "",
+          "title": "Kb",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "doc",
+            "chunk",
+            "book_page",
+            "manual"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "quote_hash": {
+          "default": "",
+          "title": "Quote Hash",
+          "type": "string"
+        },
+        "ref": {
+          "default": "",
+          "title": "Ref",
+          "type": "string"
+        },
+        "snippet": {
+          "default": "",
+          "title": "Snippet",
+          "type": "string"
+        },
+        "title": {
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "title"
+      ],
+      "title": "SourceRef",
+      "type": "object"
+    },
+    "SummaryBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "summary",
+          "default": "summary",
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "SummaryBlock",
+      "type": "object"
+    },
+    "WidgetBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "widget",
+          "default": "widget",
+          "title": "Kind",
+          "type": "string"
+        },
+        "widget_id": {
+          "minLength": 1,
+          "title": "Widget Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "widget_id"
+      ],
+      "title": "WidgetBlock",
+      "type": "object"
+    },
+    "WidgetSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "expression": {
+          "default": "",
+          "title": "Expression",
+          "type": "string"
+        },
+        "formula_latex": {
+          "default": "",
+          "title": "Formula Latex",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "default": "slider_formula",
+          "enum": [
+            "slider_formula",
+            "slider_plot"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "maximum": {
+          "default": 1.0,
+          "title": "Maximum",
+          "type": "number"
+        },
+        "minimum": {
+          "default": 0.0,
+          "title": "Minimum",
+          "type": "number"
+        },
+        "parameter": {
+          "default": "x",
+          "title": "Parameter",
+          "type": "string"
+        },
+        "precision": {
+          "default": 3,
+          "maximum": 6,
+          "minimum": 0,
+          "title": "Precision",
+          "type": "integer"
+        },
+        "samples": {
+          "default": 41,
+          "maximum": 101,
+          "minimum": 5,
+          "title": "Samples",
+          "type": "integer"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        },
+        "step": {
+          "default": 0.1,
+          "title": "Step",
+          "type": "number"
+        },
+        "title": {
+          "default": "",
+          "title": "Title",
+          "type": "string"
+        },
+        "unit": {
+          "default": "",
+          "title": "Unit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "WidgetSpec",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "assets": {
+      "items": {
+        "$ref": "#/$defs/AssetRef"
+      },
+      "title": "Assets",
+      "type": "array"
+    },
+    "book_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Book Id"
+    },
+    "concepts": {
+      "items": {
+        "$ref": "#/$defs/Concept"
+      },
+      "title": "Concepts",
+      "type": "array"
+    },
+    "content_hash": {
+      "default": "",
+      "title": "Content Hash",
+      "type": "string"
+    },
+    "figures": {
+      "items": {
+        "$ref": "#/$defs/FigureSpec"
+      },
+      "title": "Figures",
+      "type": "array"
+    },
+    "id": {
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/Item"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "kb_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Kb Ids",
+      "type": "array"
+    },
+    "language": {
+      "default": "zh",
+      "enum": [
+        "zh",
+        "en"
+      ],
+      "title": "Language",
+      "type": "string"
+    },
+    "mastery_path_id": {
+      "default": "",
+      "title": "Mastery Path Id",
+      "type": "string"
+    },
+    "plan": {
+      "$ref": "#/$defs/ReviewPlan"
+    },
+    "quality": {
+      "$ref": "#/$defs/QualityReport"
+    },
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sections": {
+      "items": {
+        "$ref": "#/$defs/Section"
+      },
+      "title": "Sections",
+      "type": "array"
+    },
+    "sources": {
+      "additionalProperties": {
+        "$ref": "#/$defs/SourceRef"
+      },
+      "title": "Sources",
+      "type": "object"
+    },
+    "title": {
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "widgets": {
+      "items": {
+        "$ref": "#/$defs/WidgetSpec"
+      },
+      "title": "Widgets",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "title"
+  ],
+  "title": "ReviewSpec",
+  "type": "object"
+}

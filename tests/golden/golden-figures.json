@@ -1,0 +1,388 @@
+{
+  "schema_version": "1.0",
+  "id": "golden-figures",
+  "mastery_path_id": "",
+  "book_id": null,
+  "kb_ids": [
+    "ct"
+  ],
+  "language": "zh",
+  "title": "电路定理 · 图表基线",
+  "plan": {
+    "daily_minutes": 10,
+    "exam_date": null,
+    "timezone": "Asia/Shanghai",
+    "target_retention": 0.9
+  },
+  "concepts": [
+    {
+      "id": "c-gf2-resistor",
+      "key": "86336a6ee5b28f97",
+      "name": "电阻元件",
+      "aliases": [],
+      "definition": "电压与电流同相的耗能元件，其伏安特性为过原点的直线。",
+      "formulas": [],
+      "prerequisites": [],
+      "difficulty": "easy",
+      "knowledge_type": "concept",
+      "source_ids": [
+        "src-gf2-ch3-1"
+      ],
+      "summary_one_line": "电阻的电压与电流成正比。",
+      "coverage": "kb",
+      "knowledge_point_id": ""
+    },
+    {
+      "id": "c-gf2-ohm",
+      "key": "9a1c489ac46526d2",
+      "name": "欧姆定律",
+      "aliases": [],
+      "definition": "电阻两端电压等于电流与电阻的乘积。",
+      "formulas": [
+        {
+          "latex": "U = IR",
+          "conditions": "线性电阻",
+          "variables": {
+            "U": "电压 / V",
+            "I": "电流 / A",
+            "R": "电阻 / Ω"
+          },
+          "source_ids": [
+            "src-gf2-ch3-1"
+          ]
+        }
+      ],
+      "prerequisites": [
+        "c-gf2-resistor"
+      ],
+      "difficulty": "easy",
+      "knowledge_type": "concept",
+      "source_ids": [
+        "src-gf2-ch3-1"
+      ],
+      "summary_one_line": "电压等于电流乘电阻。",
+      "coverage": "kb",
+      "knowledge_point_id": ""
+    },
+    {
+      "id": "c-gf2-power",
+      "key": "a7d476b9825b9b6a",
+      "name": "电阻功率",
+      "aliases": [],
+      "definition": "电阻把电能转化为热能，功率等于电压与电流的乘积。",
+      "formulas": [
+        {
+          "latex": "P = UI = I^{2}R = \\frac{U^{2}}{R}",
+          "conditions": "线性电阻，采用关联参考方向",
+          "variables": {
+            "P": "功率 / W",
+            "U": "电压 / V",
+            "I": "电流 / A"
+          },
+          "source_ids": [
+            "src-gf2-ch3-1"
+          ]
+        }
+      ],
+      "prerequisites": [
+        "c-gf2-ohm"
+      ],
+      "difficulty": "medium",
+      "knowledge_type": "concept",
+      "source_ids": [
+        "src-gf2-ch3-1"
+      ],
+      "summary_one_line": "功率可以写成电压与电流乘积的三种等价形式。",
+      "coverage": "kb",
+      "knowledge_point_id": ""
+    },
+    {
+      "id": "c-gf2-divider",
+      "key": "994f7c93ed97be9e",
+      "name": "串联分压",
+      "aliases": [],
+      "definition": "串联电阻上的电压按电阻值比例分配。",
+      "formulas": [
+        {
+          "latex": "U_1 = \\frac{R_1}{R_1 + R_2}U",
+          "conditions": "两个电阻串联，总电压为 U",
+          "variables": {
+            "U_1": "R_1 上的电压 / V",
+            "R_1": "第一个电阻 / Ω"
+          },
+          "source_ids": [
+            "src-gf2-ch3-2"
+          ]
+        }
+      ],
+      "prerequisites": [
+        "c-gf2-ohm"
+      ],
+      "difficulty": "medium",
+      "knowledge_type": "procedure",
+      "source_ids": [
+        "src-gf2-ch3-2"
+      ],
+      "summary_one_line": "串联电路中电阻越大分到的电压越多。",
+      "coverage": "kb",
+      "knowledge_point_id": ""
+    },
+    {
+      "id": "c-gf2-kcl",
+      "key": "a80f5be6a95a48c3",
+      "name": "基尔霍夫电流定律",
+      "aliases": [],
+      "definition": "任一节点上各支路电流的代数和为零。",
+      "formulas": [],
+      "prerequisites": [
+        "c-gf2-ohm"
+      ],
+      "difficulty": "medium",
+      "knowledge_type": "concept",
+      "source_ids": [
+        "src-gf2-ch3-2"
+      ],
+      "summary_one_line": "流入节点的电流等于流出节点的电流。",
+      "coverage": "kb",
+      "knowledge_point_id": ""
+    }
+  ],
+  "sections": [
+    {
+      "id": "sec-gf2-theorems",
+      "title": "电路定理与图表基线",
+      "concept_ids": [
+        "c-gf2-resistor",
+        "c-gf2-ohm",
+        "c-gf2-power",
+        "c-gf2-divider",
+        "c-gf2-kcl"
+      ],
+      "order": 1,
+      "blocks": [
+        {
+          "kind": "prose",
+          "text": "线性电阻满足欧姆定律 $U = IR$；功率可以写成 $P = UI$。多个概念之间的前置关系由图中的有向边表示：先掌握电阻元件，再学习欧姆定律，最后才能讨论功率与分压。"
+        },
+        {
+          "kind": "figure",
+          "figure_id": "fig-gf2-large-ticks"
+        },
+        {
+          "kind": "figure",
+          "figure_id": "fig-gf2-long-labels"
+        },
+        {
+          "kind": "item",
+          "item_id": "item-gf2-choice"
+        },
+        {
+          "kind": "item",
+          "item_id": "item-gf2-numeric"
+        },
+        {
+          "kind": "summary",
+          "text": "欧姆定律 $U = IR$；功率 $P = UI$；串联分压按电阻比例分配。"
+        }
+      ]
+    }
+  ],
+  "figures": [
+    {
+      "id": "fig-gf2-large-ticks",
+      "kind": "plot",
+      "title": "大数值坐标轴（V2 压力用例）",
+      "caption": "纵轴数值达到 7.5e11，刻度标签宽于左侧留白。",
+      "svg": "",
+      "tikz": "",
+      "points": [
+        [
+          0.0,
+          750000000000.0
+        ],
+        [
+          1.0,
+          742000000000.0
+        ],
+        [
+          2.0,
+          758000000000.0
+        ],
+        [
+          3.0,
+          750000000000.0
+        ],
+        [
+          4.0,
+          765000000000.0
+        ]
+      ],
+      "bar_labels": [],
+      "bar_values": [],
+      "panels": [],
+      "x_label": "采样点",
+      "y_label": "电压 / V",
+      "unit": "V",
+      "source_ids": [
+        "src-gf2-ch3-1"
+      ]
+    },
+    {
+      "id": "fig-gf2-long-labels",
+      "kind": "bar",
+      "title": "20 个长中文标签（V1 压力用例）",
+      "caption": "每个标签超过 12 个汉字，按槽宽截断后才不会相互重叠。",
+      "svg": "",
+      "tikz": "",
+      "points": [],
+      "bar_labels": [
+        "串联谐振回路品质因数实测值随温度变化",
+        "并联谐振回路品质因数实测值随频率变化",
+        "高频变压器漏感折算到初级后的等效值",
+        "中频放大器通频带宽度测量值与理论值",
+        "混频器变频损耗随本振功率变化曲线",
+        "本振泄漏到射频端口的功率测量结果",
+        "镜像频率抑制比在不同中频下的测试",
+        "输入匹配网络驻波比实测最大值记录",
+        "输出匹配网络驻波比实测最大值记录",
+        "晶体滤波器矩形系数测量值与标称值",
+        "陶瓷滤波器插入损耗随频率变化曲线",
+        "声表面波滤波器群时延波动测量结果",
+        "低噪声放大器噪声系数随频率的变化",
+        "功率放大器三阶交调截点测量结果",
+        "振荡器频率稳定度长期漂移实测数据",
+        "鉴相器线性范围实测数据与拟合曲线",
+        "环路滤波器相位裕度测量值与设计值",
+        "压控振荡器调谐灵敏度曲线实测记录",
+        "混频器本振端口隔离度随频率变化",
+        "天线端口回波损耗随频率变化测量值"
+      ],
+      "bar_values": [
+        42.5,
+        38.2,
+        3.14,
+        12.8,
+        6.35,
+        23.4,
+        55.1,
+        1.82,
+        1.95,
+        2.4,
+        4.6,
+        18.3,
+        2.1,
+        33.0,
+        0.85,
+        41.2,
+        62.0,
+        9.4,
+        27.6,
+        15.9
+      ],
+      "panels": [],
+      "x_label": "测试项目",
+      "y_label": "测得值",
+      "unit": "",
+      "source_ids": [
+        "src-gf2-ch3-2"
+      ]
+    }
+  ],
+  "widgets": [],
+  "items": [
+    {
+      "id": "item-gf2-choice",
+      "concept_ids": [
+        "c-gf2-ohm"
+      ],
+      "kind": "single_choice",
+      "stem": "下列哪个表达式是欧姆定律？",
+      "options": [
+        {
+          "label": "A",
+          "text": "U = IR"
+        },
+        {
+          "label": "B",
+          "text": "U = I/R"
+        },
+        {
+          "label": "C",
+          "text": "I = UR"
+        },
+        {
+          "label": "D",
+          "text": "R = UI"
+        }
+      ],
+      "answer": {
+        "choice_index": 0,
+        "value": null,
+        "tolerance": 0.0,
+        "text": ""
+      },
+      "explanation": "欧姆定律写为 $U = IR$，即电压等于电流与电阻的乘积。",
+      "self_check": "",
+      "pitfalls": [],
+      "assumptions": [],
+      "study_table": "",
+      "difficulty": "easy",
+      "source_ids": [
+        "src-gf2-ch3-1"
+      ],
+      "variant_of": null
+    },
+    {
+      "id": "item-gf2-numeric",
+      "concept_ids": [
+        "c-gf2-power"
+      ],
+      "kind": "numeric",
+      "stem": "某电阻两端电压 $U = 10\\,\\mathrm{V}$，电流 $I = 0.5\\,\\mathrm{A}$，求功率 $P$（W）。",
+      "options": [],
+      "answer": {
+        "choice_index": null,
+        "value": 5.0,
+        "tolerance": 0.01,
+        "text": ""
+      },
+      "explanation": "功率等于电压与电流的乘积，所以功率为 5 W。",
+      "self_check": "",
+      "pitfalls": [],
+      "assumptions": [],
+      "study_table": "",
+      "difficulty": "easy",
+      "source_ids": [
+        "src-gf2-ch3-1"
+      ],
+      "variant_of": null
+    }
+  ],
+  "sources": {
+    "src-gf2-ch3-1": {
+      "id": "src-gf2-ch3-1",
+      "kind": "book_page",
+      "title": "第3章 3.1 欧姆定律与功率",
+      "kb": "ct",
+      "ref": "chapter3/section-3.1",
+      "snippet": "欧姆定律写为 U = IR；电阻功率 P = UI。",
+      "quote_hash": ""
+    },
+    "src-gf2-ch3-2": {
+      "id": "src-gf2-ch3-2",
+      "kind": "book_page",
+      "title": "第3章 3.2 分压与基尔霍夫定律",
+      "kb": "ct",
+      "ref": "chapter3/section-3.2",
+      "snippet": "串联电阻分压；任一节点各支路电流代数和为零。",
+      "quote_hash": ""
+    }
+  },
+  "quality": {
+    "passed": true,
+    "warnings": [],
+    "gates": []
+  },
+  "assets": [],
+  "content_hash": "2323aafbdd114b28e0749182de2d719fe56d53a072d6d4784415fb633ad74fae"
+}

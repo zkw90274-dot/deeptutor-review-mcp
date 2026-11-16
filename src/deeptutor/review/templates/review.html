@@ -1,0 +1,1682 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<title>{{TITLE}}</title>
+<style>
+:root{--ink:#14161a;--muted:#5a616b;--line:#6b7280;--hairline:#e5e7eb;--bg:#eceef1;--card:#fbfbfc;--card-soft:#f5f6f7;--accent:#0f766e;--accent-strong:#0b5f59;--accent-soft:#e6f2f0;--ok:#1f7a4d;--ok-soft:#eaf5ef;--warn:#8a5a00;--warn-soft:#fbf3e3;--bad:#a33131;--bad-soft:#f9eded;--spark:#b9771f;--radius:22px;--radius-inner:14px;--radius-small:9px;--gap:20px;--shadow:0 1px 2px rgba(16,24,40,.04),0 18px 40px -14px rgba(16,24,40,.12);--card-highlight:inset 0 1px 0 rgba(255,255,255,.9);--dot:rgba(20,22,26,.11);--glow:rgba(15,118,110,.12)}
+html[data-theme="dark"]{color-scheme:dark;--ink:#f2f4f7;--muted:#9aa3af;--line:#7d8794;--hairline:#262a30;--bg:#0b0d0f;--card:#16191c;--card-soft:#1b1e22;--accent:#5ec8bd;--accent-strong:#8adbd2;--accent-soft:#132a28;--ok:#7fd3a5;--ok-soft:#1c2c25;--warn:#e0b166;--warn-soft:#2e2719;--bad:#f0a0a0;--bad-soft:#301d1d;--spark:#e5b25c;--shadow:0 1px 0 rgba(255,255,255,.03),0 28px 64px -24px rgba(0,0,0,.75);--card-highlight:inset 0 1px 0 rgba(255,255,255,.055);--dot:rgba(255,255,255,.1);--glow:rgba(94,200,189,.14)}
+@media (prefers-color-scheme: dark){html:not([data-theme="light"]){color-scheme:dark;--ink:#f2f4f7;--muted:#9aa3af;--line:#7d8794;--hairline:#262a30;--bg:#0b0d0f;--card:#16191c;--card-soft:#1b1e22;--accent:#5ec8bd;--accent-strong:#8adbd2;--accent-soft:#132a28;--ok:#7fd3a5;--ok-soft:#1c2c25;--warn:#e0b166;--warn-soft:#2e2719;--bad:#f0a0a0;--bad-soft:#301d1d;--spark:#e5b25c;--shadow:0 1px 0 rgba(255,255,255,.03),0 28px 64px -24px rgba(0,0,0,.75);--card-highlight:inset 0 1px 0 rgba(255,255,255,.055);--dot:rgba(255,255,255,.1);--glow:rgba(94,200,189,.14)}}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font:16px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC","Microsoft YaHei",sans-serif;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}
+body{min-height:100vh}
+main{max-width:980px;margin:0 auto;padding:32px 20px 88px}
+.topbar{position:sticky;top:0;z-index:40;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(14px);border-bottom:1px solid var(--hairline)}
+.topbar-inner{max-width:980px;margin:0 auto;padding:9px 20px;display:flex;align-items:center;gap:14px}
+.topbar-brand{display:inline-flex;align-items:center;gap:8px;white-space:nowrap;font-size:.9rem;letter-spacing:-.01em}
+.topbar-brand b{font-weight:700}
+.topbar-chip{font-size:.7rem;color:var(--muted);border:1px solid var(--hairline);border-radius:999px;padding:3px 8px;background:var(--card)}
+.topbar-links{display:flex;gap:6px;margin-left:auto;overflow-x:auto;scrollbar-width:none;max-width:62%}
+.topbar-links::-webkit-scrollbar{display:none}
+.topbar-links a{flex:none;font-size:.8rem;line-height:1.2;padding:7px 11px;border-radius:999px;border:1px solid transparent;color:var(--muted);text-decoration:none;white-space:nowrap}
+.topbar-links a:hover{background:var(--card);border-color:var(--hairline);color:var(--ink)}
+
+h1,h2,h3{letter-spacing:-.02em}
+a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:3px}
+.card,header.hero,.item,.complete,.chapter>.prose,.chapter>.callout,.chapter>.summary,.chapter>.figure,.chapter>.widget{background:var(--card);border:1px solid var(--hairline);border-radius:var(--radius);box-shadow:var(--shadow),var(--card-highlight)}
+@supports (corner-shape: squircle){
+  .card,header.hero,.item,.complete,.chapter>.prose,.chapter>.callout,.chapter>.summary,.chapter>.figure,.chapter>.widget{border-radius:var(--radius);corner-shape:squircle}
+}
+header.hero{position:relative;overflow:hidden;padding:40px 36px 32px;margin:0 0 var(--gap)}
+header.hero::before{content:"";position:absolute;inset:-40% -10% auto;height:320px;pointer-events:none;background:radial-gradient(52% 100% at 50% 0%,var(--glow),transparent 72%);opacity:.85}
+header.hero::after{content:"";position:absolute;inset:0;pointer-events:none;background-image:radial-gradient(var(--dot) 1px,transparent 1px);background-size:18px 18px;opacity:.5;-webkit-mask-image:radial-gradient(72% 88% at 82% -8%,#000,transparent 72%);mask-image:radial-gradient(72% 88% at 82% -8%,#000,transparent 72%)}
+header.hero>*{position:relative;z-index:1}
+.hero-top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start}
+.hero-copy{min-width:0}
+.eyebrow{display:inline-flex;align-items:center;gap:7px;margin:0 0 16px;padding:5px 11px;font-size:.7rem;line-height:1.3;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);background:var(--card-soft);border:1px solid var(--hairline);border-radius:999px}
+.eyebrow::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--accent)}
+header.hero h1{font-size:clamp(2rem,4.2vw,3rem);line-height:1.08;margin:0 0 14px;letter-spacing:-.045em;font-weight:800;max-width:24ch;text-wrap:balance}
+.meta{color:var(--muted);font-size:.84rem;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.meta span{display:inline-flex;align-items:baseline;gap:6px;padding:5px 11px;background:var(--card-soft);border:1px solid var(--hairline);border-radius:999px;white-space:nowrap}
+.meta b{color:var(--ink);font-weight:650}
+.hero-lede{margin:12px 0 0;max-width:52em;color:var(--muted);font-size:.98rem;line-height:1.75}
+.hero-actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:26px 0 0}
+button{font:inherit;cursor:pointer;border:1px solid var(--hairline);background:var(--card);color:var(--ink);border-radius:999px;padding:9px 16px;min-height:44px;transition:transform .18s cubic-bezier(.2,.8,.2,1),background .18s,border-color .18s,box-shadow .18s}
+button:hover{border-color:var(--accent);box-shadow:0 6px 18px rgba(23,31,42,.08)}
+button:active{transform:translateY(1px)}
+button:disabled{opacity:.55;cursor:not-allowed;transform:none;box-shadow:none}
+button.primary{background:var(--ink);border-color:var(--ink);color:var(--card);font-weight:650;display:inline-flex;align-items:center;gap:8px;padding:0 20px;letter-spacing:-.01em;box-shadow:0 1px 2px rgba(16,24,40,.12)}
+button.primary:hover{background:var(--accent-strong);border-color:var(--accent-strong)}
+button.primary svg{width:18px;height:18px;flex:none;transition:transform .18s cubic-bezier(.2,.8,.2,1)}
+button.primary:hover svg{transform:translateX(3px)}
+button.ghost{background:transparent;border-color:var(--hairline);color:var(--ink)}
+button.ghost:hover{background:var(--card-soft);border-color:var(--line)}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.item:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+button:focus-visible,input:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.icon-button{width:46px;height:46px;min-height:46px;padding:0;border-radius:50%;display:grid;place-items:center;background:var(--card-soft);border-color:transparent;color:var(--ink);flex:none}
+.icon-button:hover{background:var(--card);border-color:var(--hairline)}
+.icon-button svg{width:20px;height:20px}
+.mode-switch{display:flex;gap:4px;padding:4px;background:var(--card-soft);border:1px solid var(--hairline);border-radius:999px}
+.mode-switch button{border:0;background:transparent;min-height:44px;padding:4px 14px;border-radius:999px;color:var(--muted);box-shadow:none}
+.mode-switch button:hover{background:var(--card);border-color:transparent}
+.mode-switch button[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--card);font-weight:650}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:0 0 var(--gap)}
+.kbd-help{margin:0 0 0 auto;color:var(--muted);font-size:.86rem;flex-basis:auto}
+.kbd-help summary{cursor:pointer;min-height:44px;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:0 14px;background:var(--card);color:var(--ink);list-style:none}
+.kbd-help summary::-webkit-details-marker{display:none}
+.kbd-help summary:hover{background:var(--card-soft);border-color:var(--accent)}
+.kbd-help .chev{width:16px;height:16px;transition:transform .18s}
+.kbd-help[open] .chev{transform:rotate(180deg)}
+.kbd-help p{margin:8px 0 0;max-width:72ch}
+.kbd-hint kbd{font:inherit;border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;padding:0 5px;background:var(--card)}
+.session-dock{position:sticky;top:60px;z-index:20;display:flex;align-items:center;gap:16px;justify-content:space-between;padding:12px 14px 12px 18px;margin:0 0 var(--gap);background:var(--card);background:color-mix(in srgb,var(--card) 86%,transparent);-webkit-backdrop-filter:blur(18px) saturate(1.25);backdrop-filter:blur(18px) saturate(1.25);border:1px solid var(--hairline);border-radius:999px;box-shadow:var(--shadow),var(--card-highlight)}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))){
+  .session-dock{background:var(--card)}
+}
+.dock-copy{display:flex;flex-direction:column;gap:2px;min-width:0}
+.dock-copy b{font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.dock-meta{font-size:.82rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.segments{display:flex;gap:5px;flex-wrap:wrap;margin:0 0 0 auto;max-width:44%}
+.segment{width:18px;height:7px;border-radius:999px;background:var(--hairline);transition:background .24s}
+.segment[data-state="good"]{background:var(--ok)}
+.segment[data-state="hard"]{background:var(--warn)}
+.segment[data-state="again"]{background:var(--bad)}
+.segment[data-state="todo"]{background:var(--hairline)}
+.dock-next{flex:none}
+section.chapter{background:transparent;border:0;padding:0;margin:0 0 var(--gap);box-shadow:none}
+.chapter-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 6px 14px;padding:0 4px}
+.chapter-head h2{font-size:1.3rem;line-height:1.4;margin:0;letter-spacing:-.025em;font-weight:750}
+.chapter-count{font-size:.78rem;color:var(--muted);white-space:nowrap;border:1px solid var(--hairline);background:var(--card-soft);border-radius:999px;padding:3px 10px}
+.chapter{scroll-margin-top:60px}
+.chapter>*{scroll-margin-top:148px}
+.chapter>.prose,.chapter>.callout,.chapter>.summary,.chapter>.figure,.chapter>.widget{padding:22px 24px;margin:0 0 var(--gap)}
+.chapter>.prose{max-width:none}
+.prose{margin:0;line-height:1.78;max-width:72ch}
+.prose p{margin:0 0 12px}
+.prose p:last-child{margin-bottom:0}
+.callout{border:1px solid var(--hairline);background:var(--accent-soft);border-radius:var(--radius-inner);padding:16px 18px;margin:0 0 var(--gap)}
+.callout.warning{background:var(--warn-soft);border-color:var(--hairline)}
+.callout.tip{background:var(--ok-soft);border-color:var(--hairline)}
+.symbols-callout{white-space:pre-line}
+.symbols-callout::first-line{font-weight:600}
+.rich-text{white-space:pre-line}
+.rich-text p{margin:0}
+.rich-text p + p,.rich-text .rt-list + p{margin-top:10px}
+.rich-text .rt-list{margin:10px 0 0;padding-left:1.45em}
+.rich-text .rt-list li{margin:4px 0;padding-left:2px}
+.rich-text .rt-list li::marker{color:var(--muted)}
+.rich-text .rt-strong{font-weight:600}
+.rich-text .rt-em{font-style:normal;font-weight:600;color:var(--ink)}
+.rich-text > :first-child{margin-top:0}
+.block-label{display:block;font-size:.74rem;line-height:1.4;letter-spacing:.12em;color:var(--muted);font-weight:600;margin:0 0 6px}
+.code-block{margin:12px 0;padding:14px 16px;background:var(--card-soft);border:1px solid var(--hairline);border-radius:var(--radius-small);overflow-x:auto;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;white-space:pre;tab-size:4}
+.code-block code{font:inherit;background:none;padding:0;border:0}
+.inline-code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;font-size:.9em;background:var(--card-soft);border:1px solid var(--hairline);border-radius:4px;padding:1px 4px}
+.table-wrap{margin:12px 0;overflow-x:auto;border:1px solid var(--hairline);border-radius:var(--radius-small);background:var(--card)}
+.table-wrap:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.table-wrap table{border-collapse:collapse;width:100%;font-size:.94rem;line-height:1.6}
+.table-wrap th,.table-wrap td{padding:9px 12px;border-bottom:1px solid var(--hairline);text-align:left;vertical-align:top;min-width:116px}
+.table-wrap th{background:var(--card-soft);font-weight:600;white-space:nowrap}
+.table-wrap tbody tr:last-child td{border-bottom:0}
+.table-wrap .align-center{text-align:center}
+.table-wrap .align-right{text-align:right}
+.table-hint{display:none;font-size:.78rem;color:var(--muted);margin:2px 0 8px;text-align:right}
+.quality-notice{margin:0 0 var(--gap)}
+.quality-notice p{margin:0 0 4px}
+.quality-notice ul{margin:4px 0 0;padding-left:20px}
+.summary{margin:0;padding:16px 18px;background:var(--card-soft);border-radius:var(--radius-inner);color:var(--muted)}
+.item{padding:24px 26px 22px;margin:0 0 var(--gap);transition:transform .22s cubic-bezier(.2,.8,.2,1),box-shadow .22s,border-color .22s}
+.item:hover{transform:translateY(-2px);box-shadow:0 2px 4px rgba(23,31,42,.05),0 22px 48px rgba(23,31,42,.11),var(--card-highlight)}
+.item.rated{border-color:var(--hairline)}
+.item-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:16px}
+.item-head h3{font-size:1.06rem;line-height:1.5;margin:0;letter-spacing:-.012em;display:flex;align-items:center;gap:10px}
+.item-number{width:32px;height:32px;border-radius:50%;display:inline-grid;place-items:center;background:var(--accent-soft);color:var(--accent);font-size:.84rem;font-weight:700;font-variant-numeric:tabular-nums;flex:none;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 22%,transparent)}
+.badge{font-size:.75rem;color:var(--muted);border:1px solid var(--hairline);border-radius:999px;padding:4px 10px;white-space:nowrap;background:var(--card-soft)}
+.badge-easy{color:var(--ok);background:var(--ok-soft);border-color:transparent}
+.badge-medium{color:var(--warn);background:var(--warn-soft);border-color:transparent}
+.badge-hard{color:var(--bad);background:var(--bad-soft);border-color:transparent}
+.stem{margin:0 0 18px;font-weight:600;font-size:1.04rem;line-height:1.78}
+.options{display:grid;gap:10px;margin:0 0 16px}
+.option{display:flex;gap:12px;align-items:flex-start;text-align:left;width:100%;padding:13px 16px;border-radius:var(--radius-inner);background:var(--card);border:1px solid var(--hairline)}
+.option:hover{background:var(--card-soft);border-color:color-mix(in srgb,var(--accent) 45%,var(--hairline));box-shadow:none}
+.option .label{font-weight:700;color:var(--accent);min-width:1.4em;font-variant-numeric:tabular-nums}
+.option.selected{border-color:var(--accent);background:var(--accent-soft)}
+.option.correct{border-color:var(--ok);background:var(--ok-soft)}
+.option.wrong{border-color:var(--bad);background:var(--bad-soft)}
+.answer{margin:14px 0 0;padding:16px 18px;border-radius:var(--radius-inner);background:var(--card-soft);border:1px solid var(--hairline)}
+.answer[hidden]{display:none}
+.answer .value{font-weight:650;margin-bottom:8px}
+.answer .explain{margin:8px 0 0;color:var(--ink);white-space:pre-line}
+.study-aids{margin-top:16px;padding-top:14px;border-top:1px solid var(--hairline)}
+.study-aids .aids-title{font-size:.78rem;letter-spacing:.06em;color:var(--muted);margin:12px 0 4px;text-transform:uppercase}
+.study-aids .aids-title:first-child{margin-top:0}
+.study-aids .aids-text{margin:0;color:var(--ink)}
+.study-aids .aids-list{margin:0;padding-left:18px;color:var(--ink)}
+.study-aids .aids-list li{margin:2px 0}
+.study-aids .study-table{margin:0 0 4px}
+.correction{margin:14px 0 0;padding:16px 18px;border:1px solid var(--accent);border-radius:var(--radius-inner);background:var(--accent-soft)}
+.correction[hidden]{display:none}
+.correction .prompt{font-weight:600;margin-bottom:10px}
+.correction .choices{display:flex;gap:8px;flex-wrap:wrap}
+.correction .choices button{text-align:left;padding:10px 14px;border-radius:var(--radius-small);background:var(--card);border-color:var(--hairline)}
+.correction .choices button.correct{border-color:var(--ok);background:var(--ok-soft)}
+.correction .choices button.wrong{border-color:var(--bad);background:var(--bad-soft)}
+.correction .feedback{font-size:.9rem;color:var(--muted);margin-top:8px;min-height:1.3em}
+.self-explain{display:none;width:100%;min-height:68px;margin:10px 0 0;padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius-inner);background:var(--card-soft);color:var(--ink);font:inherit;resize:vertical}
+.self-explain-label{display:none;margin:10px 0 0;font-size:.88rem;color:var(--muted)}
+body[data-mode="deep"] .self-explain,body[data-mode="deep"] .self-explain-label{display:block}
+/* 速览 is a reading pass: the options and the self-rating controls are noise
+   there, and the design (phase-11 §2.2) keeps only the stem, answer and
+   explanation. Print re-enables the options with !important. */
+body[data-mode="quick"] .options,body[data-mode="quick"] .ratings{display:none}
+/* Per-item answer toggle: only meaningful while the answers are hidden. */
+.item-actions{display:flex;gap:8px;margin-top:12px}
+.reveal-toggle{min-height:40px;padding:6px 14px;font-size:.9rem;color:var(--muted);background:transparent}
+.reveal-toggle:hover{color:var(--ink)}
+body:not([data-mode="selftest"]) .item-actions{display:none}
+.ratings{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:16px}
+.ratings span.hint{font-size:.85rem;color:var(--muted);margin-right:2px}
+.ratings .status{font-size:.82rem;color:var(--muted);margin-left:auto;min-height:1.4em}
+.rating{border-radius:999px;padding:8px 14px;min-height:44px;background:var(--card);border:1px solid var(--hairline);font-weight:600}
+.rating[data-rating="again"]{color:var(--bad);background:var(--bad-soft);border-color:transparent}
+.rating[data-rating="hard"]{color:var(--warn);background:var(--warn-soft);border-color:transparent}
+.rating[data-rating="good"]{color:var(--ok);background:var(--ok-soft);border-color:transparent}
+.rating[aria-pressed="true"]{box-shadow:inset 0 0 0 2px currentColor}
+.sources{margin:14px 0 0;padding:12px 0 0;border-top:1px solid var(--hairline);font-size:.85rem;color:var(--muted)}
+.sources ul{margin:4px 0 0;padding-left:18px}
+.math{font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;background:var(--card-soft);border-radius:6px;padding:1px 5px;word-break:break-word}
+.formulas{display:grid;gap:var(--gap);margin:0 0 var(--gap)}
+.formula{padding:20px 22px;background:var(--card);border-radius:var(--radius);border:1px solid var(--hairline);box-shadow:var(--shadow),var(--card-highlight)}
+.formula-latex{font-size:1.05rem;overflow-x:auto}
+.formula-note,.formula-vars{margin-top:6px;font-size:.86rem;color:var(--muted)}
+.figure{margin:0;padding:16px 18px;overflow:visible}
+.figure svg{display:block;max-width:100%;height:auto;margin:0 auto}
+.figure-caption{margin:10px 0 0;font-size:.86rem;color:var(--muted);text-align:center}
+.widget{padding:18px 20px}
+.widget-title{font-weight:650;margin-bottom:10px}
+.widget-formula{margin:0 0 12px;padding:10px 12px;background:var(--card-soft);border-radius:var(--radius-small);overflow-x:auto}
+.widget-controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.widget-range{flex:1 1 220px;min-height:44px;accent-color:var(--accent)}
+.widget-controls output{font-variant-numeric:tabular-nums;font-weight:650;min-width:8ch;text-align:right}
+.placeholder{padding:16px 18px;border:1px dashed var(--line);border-radius:var(--radius-inner);color:var(--muted);background:var(--card-soft)}
+.complete{padding:28px;margin:var(--gap) 0 0;position:relative;overflow:hidden}
+.complete[hidden]{display:none}
+.complete h2{font-size:1.35rem;line-height:1.3;margin:0 0 8px;letter-spacing:-.02em}
+.complete p{color:var(--muted);margin:0 0 16px;max-width:60ch}
+.complete-stats{display:flex;gap:20px;flex-wrap:wrap;margin:0 0 18px;font-size:.92rem;color:var(--muted)}
+.complete-stats b{color:var(--ink);font-size:1.25rem;font-variant-numeric:tabular-nums;margin-right:4px}
+.complete .spark{position:absolute;right:24px;top:22px;width:44px;height:44px;color:var(--spark);opacity:.9}
+@keyframes spark-in{0%{transform:scale(.55) rotate(-20deg);opacity:0}60%{transform:scale(1.08) rotate(4deg);opacity:1}100%{transform:scale(1) rotate(0);opacity:1}}
+.complete.just-completed .spark{animation:spark-in .6s cubic-bezier(.2,.8,.2,1) both}
+footer{margin:28px 0 0;color:var(--muted);font-size:.82rem;line-height:1.7}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important;scroll-behavior:auto !important}
+}
+@media (prefers-contrast: more){
+  :root{--muted:#3d4753;--line:#5b6675}
+}
+@media (max-width:720px){
+  main{padding:18px 12px 56px}
+  header.hero{padding:28px 22px 24px}
+  header.hero h1{font-size:clamp(1.75rem,7vw,2.35rem);letter-spacing:-.035em}
+  header.hero::after{-webkit-mask-image:radial-gradient(80% 90% at 86% -10%,#000,transparent 74%);mask-image:radial-gradient(80% 90% at 86% -10%,#000,transparent 74%)}
+  .hero-top{gap:12px}
+  .meta{display:grid;grid-template-columns:1fr;gap:6px;width:100%}
+  .meta span{display:flex;flex-wrap:nowrap;align-items:baseline;justify-content:space-between;gap:12px;min-width:0;white-space:normal;padding:6px 10px}
+  .meta span b{text-align:right}
+  .hero-actions{gap:10px}
+  .theme-toggle{width:44px;height:44px}
+  .session-dock{top:56px;display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"copy next" "segments segments";gap:8px 12px;padding:12px 14px;border-radius:20px}
+  .dock-copy{grid-area:copy;flex-direction:row;align-items:baseline;gap:8px;flex-wrap:wrap}
+  .segments{grid-area:segments;max-width:none;margin:0;justify-content:flex-start}
+  .dock-next{grid-area:next;align-self:center}
+  .dock-meta{white-space:normal}
+  .chapter-head h2{font-size:1.18rem}
+  .chapter{scroll-margin-top:56px}
+  .chapter>*{scroll-margin-top:172px}
+  .chapter>.prose,.chapter>.callout,.chapter>.summary,.chapter>.figure,.chapter>.widget{padding:18px 18px}
+  .item{padding:20px 18px 18px}
+  .item-head{display:block;margin-bottom:14px}
+  .item-head h3{min-width:0}
+  .item-number{width:30px;height:30px}
+  .badge{display:inline-flex;margin-top:10px;white-space:nowrap}
+  .ratings .status{margin-left:0;flex-basis:100%}
+}
+@media (max-width:640px){
+  .figure{overflow-x:auto}
+  .figure svg{min-width:520px}
+  .table-hint{display:block}
+  /* A single long inline formula can be far wider than a phone viewport;
+     scroll the formula instead of letting the whole page pan sideways. */
+  mjx-container{max-width:100%;overflow-x:auto;overflow-y:hidden}
+}
+@media print{
+  :root,html[data-theme="dark"],html:not([data-theme="light"]){color-scheme:light;--bg:#fff;--card:#fff;--card-soft:#fff;--ink:#000;--muted:#333;--hairline:#bbb;--line:#666;--accent:#000;--accent-strong:#000;--accent-soft:#fff;--ok:#000;--ok-soft:#fff;--warn:#000;--warn-soft:#fff;--bad:#000;--bad-soft:#fff;--shadow:none;--card-highlight:none}
+  body{background:#fff}
+  .topbar{display:none}
+  main{max-width:none;padding:0}
+  header.hero::before,header.hero::after{display:none}
+  header.hero{padding:24px 24px 20px;margin-bottom:14px}
+  .session-dock{background:#fff;-webkit-backdrop-filter:none;backdrop-filter:none}
+  .chapter-head{margin:0 4px 10px}
+  .chapter>.prose,.chapter>.callout,.chapter>.summary,.chapter>.figure,.chapter>.widget{padding:14px 16px;margin-bottom:12px}
+  .item{padding:16px 18px 14px;margin-bottom:12px}
+  .option{padding:9px 12px}
+  .toolbar,.ratings,.correction,button:not(.option){display:none !important}
+  .session-dock,.theme-toggle,.complete,.start-review,.kbd-help,.hero-actions,.mode-switch{display:none !important}
+  body[data-mode] .options{display:grid !important}
+  .option{display:flex !important;background:#fff !important;color:#000 !important}
+  body[data-mode] .explain{display:block !important}
+  :focus-visible,.item:focus-visible{outline:none !important}
+  .answer{display:block !important;background:#fff;border-color:#bbb}
+  body[data-mode="selftest"] .answer{display:none !important}
+  .self-explain,.self-explain-label,#math-progress{display:none !important}
+  .chapter-head{break-after:avoid;page-break-after:avoid}
+  header.hero{break-inside:avoid;page-break-inside:avoid}
+  .item{page-break-inside:avoid}
+  .figure,.widget,.table-wrap{break-inside:avoid;page-break-inside:avoid}
+  mjx-container{max-width:100%;overflow:visible}
+  .figure{overflow:visible}
+  .figure svg{min-width:0}
+  .code-block{white-space:pre-wrap;word-break:break-word;overflow:visible;border-color:#bbb}
+  .table-wrap{overflow:visible;border-color:#bbb}
+  .table-hint{display:none !important}
+  .table-wrap table{font-size:9.5pt}
+  .table-wrap tr{break-inside:avoid;page-break-inside:avoid}
+  .table-wrap thead{display:table-header-group}
+  a{color:inherit;text-decoration:none}
+  .item,.complete,.formula,.answer,.correction,.summary,.callout,.formulas,.figure,.widget,.placeholder,.chapter>.prose,.chapter>.callout,.chapter>.summary,.chapter>.figure,.chapter>.widget{border-radius:0;box-shadow:none;border-color:#bbb}
+}
+
+</style>
+{{MATHJAX}}
+</head>
+<body>
+<nav class="topbar" aria-label="章节目录">
+  <div class="topbar-inner">
+    <span class="topbar-brand"><b>复习工坊</b><span class="topbar-chip">离线复习包</span></span>
+    <div class="topbar-links" id="topbar-links"></div>
+  </div>
+</nav>
+<main>
+<header class="hero">
+  <div class="hero-top">
+    <div class="hero-copy">
+      <p class="eyebrow">Review Studio · 离线复习</p>
+      <h1 id="title"></h1>
+      <p class="hero-lede">先读题、再展开答案自评；三档自评会存入本机记忆，按遗忘曲线安排下一次。</p>
+      <div class="meta" id="meta"></div>
+    </div>
+    <button type="button" class="icon-button theme-toggle" id="theme-toggle" aria-label="切换到深色模式" aria-pressed="false" title="切换明暗主题">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17Z" fill="currentColor"/></svg>
+    </button>
+  </div>
+  <div class="hero-actions">
+    <button type="button" class="primary start-review" id="start-review"><span id="start-review-label">开始复习</span>
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <button type="button" class="ghost" id="print">打印 / 存为 PDF</button>
+    <div class="mode-switch" role="group" aria-label="阅读模式">
+      <button type="button" data-mode="selftest" aria-pressed="true">自测</button>
+      <button type="button" data-mode="quick" aria-pressed="false">速览</button>
+      <button type="button" data-mode="deep" aria-pressed="false">精读</button>
+    </div>
+  </div>
+</header>
+<div class="session-dock" id="session-dock">
+  <div class="dock-copy">
+    <b id="dock-progress">0 / 0</b>
+    <span class="dock-meta" id="dock-meta">准备开始</span>
+  </div>
+  <div class="segments" id="segments" role="progressbar" aria-label="复习进度" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"></div>
+  <button type="button" class="primary dock-next" id="dock-next"><span id="dock-next-label">下一题</span>
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+</div>
+<div class="toolbar">
+  <button type="button" id="reveal-all">显示全部答案</button>
+  <button type="button" id="hide-all">隐藏全部答案</button>
+  <details class="kbd-help">
+    <summary>键盘快捷键
+      <svg class="chev" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m8 10 4 4 4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </summary>
+    <p class="kbd-hint">键盘操作：<kbd>Tab</kbd> 移动焦点；聚焦某道题后按 <kbd>Enter</kbd> 显示答案、<kbd>Esc</kbd> 收起答案或关键点复述；自测模式下按 <kbd>1</kbd> / <kbd>2</kbd> / <kbd>3</kbd> 自评。</p>
+  </details>
+</div>
+<div id="sections"></div>
+<section class="complete" id="complete" hidden aria-live="polite">
+  <svg class="spark" viewBox="0 0 44 44" fill="none" aria-hidden="true"><path d="M22 4v10M22 30v10M4 22h10M30 22h10M9.3 9.3l7 7M27.7 27.7l7 7M34.7 9.3l-7 7M16.3 27.7l-7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+  <h2>这一轮完成了</h2>
+  <p>每一次回想都在加固记忆。自评只保存在本机，下次打开还会保留。</p>
+  <div class="complete-stats">
+    <span><b id="complete-count">0</b>题已完成</span>
+    <span><b id="complete-good">0</b>题很稳</span>
+    <span><b id="complete-again">0</b>题下次再见</span>
+  </div>
+  <button type="button" class="ghost" id="complete-top">回到第一题</button>
+</section>
+<footer id="footer"></footer>
+<noscript><p>此离线复习页需要启用 JavaScript 才能展开答案与自评。</p></noscript>
+</main>
+<script>
+"use strict";
+window.__REVIEW__ = {{PAYLOAD}};
+(function () {
+  var data = window.__REVIEW__;
+  var root = document.getElementById("sections");
+  var storageKey = "review-studio:" + data.spec_id;
+  var memory = {};
+  var answers = {};
+
+  function el(tag, className, text) {
+    var node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined && text !== null) node.textContent = String(text);
+    return node;
+  }
+  function getStored(itemId) {
+    try {
+      var raw = window.localStorage.getItem(storageKey + ":" + itemId);
+      return raw ? JSON.parse(raw) : null;
+    } catch (err) {
+      return memory[itemId] || null;
+    }
+  }
+  function setStored(itemId, rating) {
+    memory[itemId] = rating;
+    try {
+      window.localStorage.setItem(storageKey + ":" + itemId, JSON.stringify(rating));
+      return true;
+    } catch (err) {
+      return false;
+    }
+  }
+  function isTextEntryTarget(node) {
+    if (!node || !node.tagName) return false;
+    var tag = node.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+    return node.isContentEditable === true;
+  }
+  var MODE_KEY = storageKey + ":mode";
+  var MODES = { selftest: true, quick: true, deep: true };
+  function getMode() {
+    try {
+      var saved = window.localStorage.getItem(MODE_KEY);
+      return Object.prototype.hasOwnProperty.call(MODES, saved) ? saved : "selftest";
+    } catch (err) {
+      return "selftest";
+    }
+  }
+  function recordViewed() {
+    root.querySelectorAll(".item").forEach(function (node) {
+      var itemId = node.getAttribute("data-item-id");
+      if (!itemId) return;
+      try {
+        if (!window.localStorage.getItem(storageKey + ":viewed:" + itemId)) {
+          window.localStorage.setItem(
+            storageKey + ":viewed:" + itemId,
+            String(Date.now())
+          );
+        }
+      } catch (err) {
+        // Reading telemetry is optional; never block the page.
+      }
+    });
+  }
+  function setMode(mode, persist) {
+    if (!Object.prototype.hasOwnProperty.call(MODES, mode)) mode = "selftest";
+    document.body.setAttribute("data-mode", mode);
+    document.querySelectorAll(".mode-switch button").forEach(function (button) {
+      button.setAttribute(
+        "aria-pressed",
+        button.getAttribute("data-mode") === mode ? "true" : "false"
+      );
+    });
+    if (persist) {
+      try {
+        window.localStorage.setItem(MODE_KEY, mode);
+      } catch (err) {
+        // Mode preference is optional.
+      }
+    }
+    root.querySelectorAll(".item").forEach(function (node) {
+      if (mode === "selftest") {
+        node.dispatchEvent(new Event("hide"));
+      } else {
+        node.dispatchEvent(new Event("reveal"));
+      }
+    });
+    if (mode !== "selftest") recordViewed();
+  }
+  function appendInlineText(parent, text) {
+    // 微机 answers use `AX`/`BX` style inline code; without this the learner
+    // sees the backticks. Fenced code blocks bypass this path entirely.
+    String(text).split(/(`[^`\n]+`)/g).forEach(function (piece) {
+      if (!piece) return;
+      if (
+        piece.length >= 2 &&
+        piece.charAt(0) === "`" &&
+        piece.charAt(piece.length - 1) === "`"
+      ) {
+        parent.appendChild(el("code", "inline-code", piece.slice(1, -1)));
+      } else {
+        parent.appendChild(document.createTextNode(piece));
+      }
+    });
+  }
+  // Explanations arrive with markdown emphasis around lead-ins: "*倍频 $N_1=100$：*".
+  // Without this the asterisks land on the page as literal text. Math is already
+  // split out before this runs, so $...$ never reaches here, and fenced code takes
+  // the code-block path instead of appendRich -- `20*log10(x)` stays untouched.
+  // A span only counts when it sits on a word boundary at both ends, so a stray
+  // multiplication star in prose is left alone rather than swallowing a phrase.
+  // The marker can wrap a formula -- "*倍频 $\times N_1=100$：*" -- so emphasis has
+  // to be resolved before math is split into its own spans, not after. The scan
+  // tracks $...$ and never treats an asterisk inside math as a delimiter.
+  var EMPHASIS_EDGE = /[\s(（\[【{，,、：:；;。.]/;
+  function emphasisEdge(text, index) {
+    if (index < 0 || index >= text.length) return true;
+    return EMPHASIS_EDGE.test(text.charAt(index));
+  }
+  function appendEmphasis(parent, text) {
+    var value = String(text);
+    var plain = "";
+    var i = 0;
+    var inMath = false;
+    function flush() {
+      if (!plain) return;
+      parent.appendChild(mathText(plain));
+      plain = "";
+    }
+    while (i < value.length) {
+      var ch = value.charAt(i);
+      if (ch === "$") {
+        inMath = !inMath;
+        plain += ch;
+        i += 1;
+        continue;
+      }
+      if (inMath || ch !== "*") {
+        plain += ch;
+        i += 1;
+        continue;
+      }
+      var strong = value.substr(i, 2) === "**";
+      var open = strong ? 2 : 1;
+      var close = strong ? value.indexOf("**", i + open) : value.indexOf("*", i + open);
+      var inner = close < 0 ? "" : value.slice(i + open, close);
+      var usable =
+        emphasisEdge(value, i - 1) &&
+        close > i + open &&
+        emphasisEdge(value, close + open) &&
+        inner.indexOf("*") < 0 &&
+        !/^\s|\s$/.test(inner);
+      if (!usable) {
+        plain += ch;
+        i += 1;
+        continue;
+      }
+      flush();
+      var node = el(strong ? "strong" : "em", strong ? "rt-strong" : "rt-em");
+      node.appendChild(mathText(inner));
+      parent.appendChild(node);
+      i = close + open;
+    }
+    flush();
+  }
+  function mathText(text) {
+    var wrap = el("span");
+    var pattern = /(\$\$[\s\S]+?\$\$|\$[^$]+?\$|\\\([\s\S]+?\\\)|\\\[[\s\S]+?\\\])/g;
+    var parts = String(text).split(pattern);
+    parts.forEach(function (part) {
+      if (!part) return;
+      if (pattern.test(part)) {
+        pattern.lastIndex = 0;
+        wrap.appendChild(el("span", "math", part));
+      } else {
+        appendInlineText(wrap, part);
+      }
+    });
+    return wrap;
+  }
+  function truncateMath(text, max) {
+    // A plain slice can land inside $...$, leaving a dangling delimiter that
+    // renders as raw text. Back off to the opening $ before adding the ellipsis.
+    var value = String(text);
+    if (value.length <= max) return value;
+    var cut = value.slice(0, Math.max(0, max - 1));
+    if ((cut.match(/\$/g) || []).length % 2 === 1) {
+      var last = cut.lastIndexOf("$");
+      if (last > 0) cut = cut.slice(0, last);
+    }
+    return cut.replace(/[\s、，,;；]+$/, "") + "…";
+  }
+  function appendRich(parent, text) {
+    appendEmphasis(parent, text);
+  }
+
+  // Tables and fenced code are first-class blocks in the explanation: 微机
+  // uses instruction tables and assembly listings, DSP uses formula tables.
+  // Everything is built with DOM nodes and textContent only.
+  var FENCE_LINE = /^\s*(```+|~~~+)/;
+  var TABLE_SEP = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/;
+  function isTableRow(line) {
+    var s = String(line).trim();
+    return s.length > 1 && s.charAt(0) === "|" && s.charAt(s.length - 1) === "|";
+  }
+  function splitTableRow(line) {
+    var s = String(line).trim();
+    if (s.charAt(0) === "|") s = s.slice(1);
+    if (s.charAt(s.length - 1) === "|") s = s.slice(0, -1);
+    var cells = [], current = "", math = false;
+    for (var i = 0; i < s.length; i += 1) {
+      var ch = s.charAt(i);
+      if (ch === "\\" && i + 1 < s.length) {
+        current += ch + s.charAt(i + 1);
+        i += 1;
+        continue;
+      }
+      if (ch === "$") math = !math;
+      if (ch === "|" && !math) {
+        cells.push(current.trim());
+        current = "";
+        continue;
+      }
+      current += ch;
+    }
+    cells.push(current.trim());
+    return cells;
+  }
+  function appendTable(parent, lines, index) {
+    var header = splitTableRow(lines[index]);
+    var align = splitTableRow(lines[index + 1]).map(function (cell) {
+      var left = cell.charAt(0) === ":";
+      var right = cell.charAt(cell.length - 1) === ":";
+      return left && right ? "align-center" : right ? "align-right" : "";
+    });
+    var wrap = el("div", "table-wrap");
+    wrap.setAttribute("tabindex", "0");
+    wrap.setAttribute("role", "region");
+    wrap.setAttribute("aria-label", "数据表，可横向滚动");
+    var table = el("table");
+    var thead = el("thead");
+    var headRow = el("tr");
+    header.forEach(function (cell, col) {
+      var th = el("th", align[col] || "");
+      th.setAttribute("scope", "col");
+      appendRich(th, cell);
+      headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+    var body = el("tbody");
+    var cursor = index + 2;
+    while (cursor < lines.length && isTableRow(lines[cursor])) {
+      var cells = splitTableRow(lines[cursor]);
+      var tr = el("tr");
+      header.forEach(function (_cell, col) {
+        var td = el("td", align[col] || "");
+        appendRich(td, cells[col] || "");
+        tr.appendChild(td);
+      });
+      body.appendChild(tr);
+      cursor += 1;
+    }
+    if (body.children.length) table.appendChild(body);
+    wrap.appendChild(table);
+    parent.appendChild(wrap);
+    // Three-column tables almost always need a horizontal swipe on a phone;
+    // the CSS hides this hint on wider screens. Answers are hidden at render
+    // time, so measuring scrollWidth here would read 0.
+    if (header.length >= 3) {
+      parent.appendChild(el("p", "table-hint", "表格可横向滑动查看"));
+    }
+    return cursor;
+  }
+  function appendCode(parent, lines, index) {
+    var match = lines[index].match(/^\s*(```+|~~~+)\s*([A-Za-z0-9_+-]*)\s*$/);
+    var marker = match ? match[1] : "```";
+    var lang = match ? match[2] : "";
+    var body = [];
+    var cursor = index + 1;
+    while (cursor < lines.length) {
+      var close = lines[cursor].match(/^\s*(```+|~~~+)\s*$/);
+      if (
+        close &&
+        close[1].charAt(0) === marker.charAt(0) &&
+        close[1].length >= marker.length
+      ) {
+        cursor += 1;
+        break;
+      }
+      body.push(lines[cursor]);
+      cursor += 1;
+    }
+    if (body.length) {
+      var pre = el("pre", "code-block" + (lang ? " language-" + lang : ""));
+      pre.setAttribute("aria-label", lang ? "代码块 " + lang : "代码块");
+      var code = el("code");
+      code.textContent = body.join("\n");
+      pre.appendChild(code);
+      parent.appendChild(pre);
+    }
+    return cursor;
+  }
+  // Long explanations read as one grey block when every line is just a text
+  // node. Blank lines become real paragraphs, and plain "-"/"1." runs become
+  // lists, so the 解析 has visible structure instead of a wall of text.
+  var BULLET_LINE = /^\s*[-•*]\s+/;
+  // ``1.5 倍`` is a decimal, not a list item: the dot must not be followed by
+  // another digit. ``（1）`` / ``①`` are deliberately not list markers — in
+  // these packs they label consecutive *paragraphs* (（1）… （2）…), and treating
+  // them as items swallowed the prose between two real lists.
+  var ORDERED_LINE = /^\s*(\d+)[.、)](?!\d)\s*/;
+  function listNode(kind, items, start) {
+    var list = el(kind === "ol" ? "ol" : "ul", "rt-list");
+    if (kind === "ol" && start > 1) list.setAttribute("start", String(start));
+    items.forEach(function (item) {
+      var li = el("li");
+      appendRich(li, item);
+      list.appendChild(li);
+    });
+    return list;
+  }
+  function appendParagraphs(parent, chunk) {
+    var lines = chunk.split("\n");
+    var plain = [];
+    var kind = null;
+    var items = [];
+    var rawItems = [];
+    var start = 1;
+    function flushPlain() {
+      if (!plain.length) return;
+      var p = el("p", "rt-p");
+      appendRich(p, plain.join("\n"));
+      parent.appendChild(p);
+      plain = [];
+    }
+    function flushList() {
+      if (!items.length) return;
+      // A lone "1. …" is a numbered paragraph, not a one-item list: rendering
+      // it as <ol> would renumber it to 1 and lose the original marker.
+      if (kind === "ol" && items.length === 1) {
+        var solo = el("p", "rt-p");
+        appendRich(solo, rawItems[0]);
+        parent.appendChild(solo);
+      } else {
+        parent.appendChild(listNode(kind, items, start));
+      }
+      items = [];
+      rawItems = [];
+      kind = null;
+      start = 1;
+    }
+    lines.forEach(function (line) {
+      var bullet = BULLET_LINE.test(line);
+      var ordered = ORDERED_LINE.exec(line);
+      if (!bullet && !ordered) {
+        flushList();
+        plain.push(line);
+        return;
+      }
+      flushPlain();
+      var next = bullet ? "ul" : "ol";
+      if (kind && kind !== next) flushList();
+      if (!kind) {
+        kind = next;
+        start = ordered ? parseInt(ordered[1] || ordered[2] || "1", 10) || 1 : 1;
+      }
+      rawItems.push(line);
+      items.push(line.replace(BULLET_LINE, "").replace(ORDERED_LINE, ""));
+    });
+    flushList();
+    flushPlain();
+  }
+  function appendBlocks(parent, text) {
+    var lines = String(text === undefined || text === null ? "" : text).split("\n");
+    var buffer = [];
+    var wrap = null;
+    function flush() {
+      if (!buffer.length) return;
+      var chunk = buffer.join("\n");
+      buffer = [];
+      if (!chunk.trim()) return;
+      // One wrapper per text run keeps ``p + p`` margins working; a table or
+      // code block ends the run so later text starts a fresh wrapper below it.
+      if (!wrap) {
+        wrap = el("div", "rich-text");
+        parent.appendChild(wrap);
+      }
+      appendParagraphs(wrap, chunk);
+    }
+    var index = 0;
+    while (index < lines.length) {
+      if (FENCE_LINE.test(lines[index])) {
+        flush();
+        index = appendCode(parent, lines, index);
+        wrap = null;
+        continue;
+      }
+      if (
+        isTableRow(lines[index]) &&
+        index + 1 < lines.length &&
+        TABLE_SEP.test(lines[index + 1])
+      ) {
+        flush();
+        index = appendTable(parent, lines, index);
+        wrap = null;
+        continue;
+      }
+      // A blank line ends a paragraph; fenced blocks and tables keep their
+      // own blank lines because they are consumed above.
+      if (!lines[index].trim()) {
+        flush();
+        index += 1;
+        continue;
+      }
+      buffer.push(lines[index]);
+      index += 1;
+    }
+    flush();
+  }
+
+  var title = document.getElementById("title");
+  title.textContent = data.title;
+  var meta = document.getElementById("meta");
+  var planBits = [
+    ["每日预算", data.plan.daily_minutes + " 分钟"],
+    ["目标记忆率", Math.round(data.plan.target_retention * 100) + "%"],
+    ["明日", data.tomorrow.date + " · " + data.tomorrow.due_items + " 项预计到期"]
+  ];
+  if (data.plan.exam_date) planBits.push(["考试日期", data.plan.exam_date]);
+  var progress = data.progress;
+  if (progress && progress.total) {
+    var progressText = (progress.reviewed || 0) + " / " + progress.total + " 个知识点";
+    if (progress.strong) progressText += " · " + progress.strong + " 个较稳";
+    planBits.unshift(["已复习", progressText]);
+  }
+  planBits.forEach(function (pair) {
+    var span = el("span");
+    span.appendChild(document.createTextNode(pair[0] + " "));
+    span.appendChild(el("b", "", pair[1]));
+    meta.appendChild(span);
+  });
+
+  function renderQualityNotice() {
+    var warnings = (data.quality && data.quality.warnings) || [];
+    var gaps = data.source_gaps || [];
+    if (!warnings.length && !gaps.length) return;
+    var box = el("section", "callout warning quality-notice");
+    box.id = "quality-notice";
+    box.setAttribute("role", "status");
+    box.appendChild(el("p", "quality-notice-title", "质量与来源提示"));
+    if (gaps.length) {
+      var names = gaps.map(function (gap) {
+        return gap.name + "（" + gap.coverage + "）";
+      });
+      box.appendChild(
+        el("p", "", "以下概念没有来源锚点，内容为转述：" + names.join("、"))
+      );
+    }
+    if (warnings.length) {
+      box.appendChild(el("p", "", "QA 与渲染提示："));
+      var list = el("ul");
+      warnings.forEach(function (warning) {
+        list.appendChild(el("li", "", warning));
+      });
+      box.appendChild(list);
+    }
+    var hero = document.querySelector("header.hero");
+    hero.parentNode.insertBefore(box, hero.nextSibling);
+  }
+  renderQualityNotice();
+
+  function sourceList(sourceIds) {
+    var box = el("div", "sources");
+    box.appendChild(document.createTextNode("来源："));
+    var list = el("ul");
+    (sourceIds || []).forEach(function (id) {
+      var source = data.sources[id];
+      if (!source) return;
+      var li = el("li", "", source.title + (source.ref ? " · " + source.ref : ""));
+      list.appendChild(li);
+    });
+    box.appendChild(list);
+    return box;
+  }
+
+  function renderItem(item) {
+    var article = el("article", "item");
+    article.setAttribute("data-item-id", item.id);
+    // The article itself is the keyboard entry point for the item: Enter
+    // reveals the answer, Esc collapses it again. Keeping it focusable is
+    // additive and leaves the inner buttons on their native Tab order.
+    article.setAttribute("tabindex", "0");
+    article.setAttribute("aria-keyshortcuts", "Enter Escape");
+    var itemNumber = ++renderItem.counter;
+    var titleId = "item-title-" + itemNumber;
+    var badgeId = "item-badge-" + itemNumber;
+    var head = el("div", "item-head");
+    var heading = el("h3");
+    heading.id = titleId;
+    var conceptName = "";
+    try {
+      conceptName = data.concepts[item.concept_ids[0]].name || "";
+    } catch (err) {}
+    // Generated packs use the concept name as a one-line summary, and real
+    // names run to 120 characters. The old 60-char cap cut complete sentences
+    // (高频第 5 章 q006 is 61) into a misleading "…". Match the backend label
+    // bound instead; the heading wraps, so a long name stays readable.
+    conceptName = truncateMath(conceptName, 200);
+    heading.appendChild(el("span", "item-number", String(itemNumber)));
+    heading.appendChild(mathText(conceptName || ("第 " + itemNumber + " 题")));
+    var DIFFICULTY_LABELS = { easy: "简单", medium: "中等", hard: "困难" };
+    var KIND_LABELS = {
+      single_choice: "单选",
+      numeric: "数值",
+      short_answer: "简答",
+      flashcard: "闪卡"
+    };
+    var badgeText =
+      (DIFFICULTY_LABELS[item.difficulty] || item.difficulty) +
+      " · " +
+      (KIND_LABELS[item.kind] || item.kind);
+    var badge = el("span", "badge badge-" + item.difficulty, badgeText);
+    badge.id = badgeId;
+    head.appendChild(heading);
+    head.appendChild(badge);
+    article.appendChild(head);
+    article.setAttribute("aria-labelledby", titleId + " " + badgeId);
+    var stem = el("p", "stem");
+    appendRich(stem, item.stem);
+    article.appendChild(stem);
+
+    var optionNodes = [];
+    if ((item.options || []).length) {
+      var options = el("div", "options");
+      options.setAttribute("role", "group");
+      options.setAttribute("aria-label", "第 " + itemNumber + " 题选项");
+      (item.options || []).forEach(function (option, index) {
+        var button = el("button", "option");
+        button.type = "button";
+        button.setAttribute("aria-pressed", "false");
+        button.appendChild(el("span", "label", option.label));
+        var body = el("span");
+        appendRich(body, option.text);
+        button.appendChild(body);
+        button.addEventListener("click", function () {
+          options.querySelectorAll(".option").forEach(function (node) {
+            node.classList.remove("selected");
+            node.setAttribute("aria-pressed", "false");
+          });
+          button.classList.add("selected");
+          button.setAttribute("aria-pressed", "true");
+          answers[item.id] = index;
+        });
+        optionNodes.push(button);
+        options.appendChild(button);
+      });
+      article.appendChild(options);
+    }
+
+    var answer = el("div", "answer");
+    answer.hidden = true;
+    answer.setAttribute("aria-live", "polite");
+    var value = el("div", "value");
+    value.appendChild(el("span", "block-label", "答案"));
+    appendBlocks(value, item.answer_display);
+    answer.appendChild(value);
+    if (item.explanation) {
+      var explain = el("div", "explain");
+      explain.appendChild(el("span", "block-label", "解析"));
+      // The generator appends "（正确答案：…）" to the explanation so gate G4
+      // can see the answer in it. The answer line above already shows it, so
+      // strip the duplicate for display. The match is the whole suffix, so
+      // this is safe for every item kind (choice items get it too).
+      var explainText = item.explanation;
+      var answerSuffix = "（正确答案：" + (item.answer_display || "") + "）";
+      if (
+        answerSuffix.length > 2 &&
+        explainText.slice(-answerSuffix.length) === answerSuffix
+      ) {
+        explainText = explainText.slice(0, -answerSuffix.length).trim();
+      }
+      appendBlocks(explain, explainText);
+      answer.appendChild(explain);
+    }
+    var aids = item.study_aids || {};
+    var aidGroups = [
+      ["假设", aids.assumptions || [], true],
+      ["自检", aids.self_check ? [aids.self_check] : [], false],
+      ["易错点", aids.pitfalls || [], true]
+    ];
+    var hasTable = !!aids.table;
+    if (hasTable || aidGroups.some(function (group) { return group[1].length; })) {
+      var aidBox = el("div", "study-aids");
+      aidGroups.forEach(function (group) {
+        if (!group[1].length) return;
+        aidBox.appendChild(el("h4", "aids-title", group[0]));
+        if (group[2]) {
+          var list = el("ul", "aids-list");
+          group[1].forEach(function (text) {
+            var row = el("li");
+            appendRich(row, text);
+            list.appendChild(row);
+          });
+          aidBox.appendChild(list);
+        } else {
+          var line = el("p", "aids-text");
+          appendRich(line, group[1][0]);
+          aidBox.appendChild(line);
+        }
+      });
+      if (hasTable) {
+        aidBox.appendChild(el("h4", "aids-title", "对照表"));
+        var tableBox = el("div", "study-table");
+        appendBlocks(tableBox, aids.table);
+        aidBox.appendChild(tableBox);
+      }
+      answer.appendChild(aidBox);
+    }
+    // Mouse users had no per-item way to check their answer: Enter works only
+    // from the keyboard and 显示全部答案 reveals every item at once. The toggle
+    // sits right above the answer so it stays next to what it opens.
+    var actions = el("div", "item-actions");
+    var revealToggle = el("button", "reveal-toggle", "看答案");
+    revealToggle.type = "button";
+    revealToggle.setAttribute("aria-expanded", "false");
+    revealToggle.addEventListener("click", function () {
+      article.dispatchEvent(new Event(answer.hidden ? "reveal" : "hide"));
+    });
+    actions.appendChild(revealToggle);
+    article.appendChild(actions);
+
+    article.appendChild(answer);
+
+    var selfExplainLabel = el(
+      "p",
+      "self-explain-label",
+      "用自己的话写一句：这题在考什么？（只保存在本机，不影响复习进度）"
+    );
+    var selfExplain = document.createElement("textarea");
+    selfExplain.className = "self-explain";
+    selfExplain.rows = 3;
+    selfExplain.setAttribute("aria-label", "自我解释：这题在考什么");
+    selfExplain.placeholder = "例如：谐振时感抗与容抗抵消，电流最大。";
+    try {
+      selfExplain.value = window.localStorage.getItem(
+        storageKey + ":self_explain:" + item.id
+      ) || "";
+    } catch (err) {
+      selfExplain.value = "";
+    }
+    selfExplain.addEventListener("input", function () {
+      try {
+        window.localStorage.setItem(
+          storageKey + ":self_explain:" + item.id,
+          selfExplain.value
+        );
+      } catch (err) {
+        // Reading notes are optional; private mode may reject writes.
+      }
+    });
+    article.appendChild(selfExplainLabel);
+    article.appendChild(selfExplain);
+
+    var correction = item.correction;
+    var correctionBox = null;
+    if (correction && correction.options && correction.options.length) {
+      correctionBox = el("div", "correction");
+      correctionBox.hidden = true;
+      correctionBox.setAttribute("role", "group");
+      correctionBox.setAttribute("aria-label", correction.prompt || "关键点复述");
+      correctionBox.appendChild(el("div", "prompt", correction.prompt || "选一个关键结论："));
+      var choices = el("div", "choices");
+      var feedback = el("div", "feedback", "");
+      feedback.setAttribute("aria-live", "polite");
+      (correction.options || []).forEach(function (option, index) {
+        var choice = el("button", "correction-option");
+        choice.type = "button";
+        choice.appendChild(document.createTextNode(String(option.label || "") + " "));
+        appendRich(choice, option.text || "");
+        choice.addEventListener("click", function () {
+          choices.querySelectorAll("button").forEach(function (node) {
+            node.classList.remove("correct", "wrong");
+          });
+          if (index === correction.correct_index) {
+            choice.classList.add("correct");
+            feedback.textContent = "复述正确。重新作答时，这题才算真正记住。";
+          } else {
+            choice.classList.add("wrong");
+            var correctNode = choices.querySelectorAll("button")[correction.correct_index];
+            if (correctNode) correctNode.classList.add("correct");
+            feedback.textContent = "再想一步：正确答案是 " + correction.correct_label + "。";
+          }
+        });
+        choices.appendChild(choice);
+      });
+      correctionBox.appendChild(choices);
+      correctionBox.appendChild(feedback);
+      article.appendChild(correctionBox);
+    }
+    function showCorrection() {
+      if (correctionBox) correctionBox.hidden = false;
+    }
+
+    article.appendChild(sourceList(item.source_ids));
+
+    var ratings = el("div", "ratings");
+    ratings.setAttribute("role", "group");
+    ratings.setAttribute("aria-label", "自评");
+    ratings.appendChild(el("span", "hint", "自评（离线记录，用于本页回顾；快捷键 1 / 2 / 3）："));
+    var status = el("span", "status", "");
+    status.setAttribute("aria-live", "polite");
+    function rate(value) {
+      var ok = setStored(item.id, value);
+      ratings.querySelectorAll(".rating").forEach(function (node) {
+        node.setAttribute("aria-pressed", "false");
+      });
+      var pressed = ratings.querySelector('.rating[data-rating="' + value + '"]');
+      if (pressed) pressed.setAttribute("aria-pressed", "true");
+      var message = ok ? "已记录到本机浏览器" : "已记录（本页临时，localStorage 不可用）";
+      if (value === "good") message = "稳了 · " + message;
+      else if (value === "hard") message = "有点模糊 · " + message;
+      else message = "下次再见 · " + message;
+      var selectedWrong =
+        item.kind === "single_choice" &&
+        typeof item.answer_index === "number" &&
+        answers[item.id] !== undefined &&
+        answers[item.id] !== item.answer_index;
+      if (value === "again" || selectedWrong) {
+        showCorrection();
+        message += "；关键点复述已展开";
+      }
+      status.textContent = message;
+      article.classList.add("rated");
+      refreshSession(true);
+    }
+    [["again", "还是不会", "1"], ["hard", "有点模糊", "2"], ["good", "会了", "3"]].forEach(function (triple) {
+      var button = el("button", "rating", triple[1]);
+      button.type = "button";
+      button.setAttribute("data-rating", triple[0]);
+      button.setAttribute("aria-keyshortcuts", triple[2]);
+      button.setAttribute("aria-pressed", "false");
+      var saved = getStored(item.id);
+      if (saved === triple[0]) button.setAttribute("aria-pressed", "true");
+      button.addEventListener("click", function () {
+        rate(triple[0]);
+      });
+      ratings.appendChild(button);
+    });
+    ratings.appendChild(status);
+    article.appendChild(ratings);
+
+    article.addEventListener("keydown", function (event) {
+      if (event.defaultPrevented || event.isComposing) return;
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
+      if (isTextEntryTarget(event.target)) return;
+      var key = event.key;
+      if (key === "Enter") {
+        // Buttons keep their native Enter activation; Enter on the item
+        // itself reveals the answer.
+        if (event.target !== article) return;
+        event.preventDefault();
+        article.dispatchEvent(new Event("reveal"));
+        return;
+      }
+      if (key === "Escape" || key === "Esc") {
+        // Fullscreen is a browser-level surface: never intercept Esc while it
+        // is active, or the user cannot leave it from the item.
+        if (document.fullscreenElement) return;
+        if (correctionBox && !correctionBox.hidden) {
+          var leavingCorrection = correctionBox.contains(event.target);
+          event.preventDefault();
+          correctionBox.hidden = true;
+          // Never leave focus on a node that just became hidden.
+          if (leavingCorrection) article.focus();
+          return;
+        }
+        if (!answer.hidden) {
+          event.preventDefault();
+          article.dispatchEvent(new Event("hide"));
+        }
+        return;
+      }
+      if (key === "1" || key === "2" || key === "3") {
+        // Digits only rate in self-test; in reading modes they would look
+        // like navigation keys, not a grade.
+        if (document.body.getAttribute("data-mode") !== "selftest") return;
+        // Digits belong to the correction choices while that region is
+        // focused, so the rating shortcuts only apply elsewhere in the item.
+        if (event.repeat || (correctionBox && correctionBox.contains(event.target))) return;
+        event.preventDefault();
+        rate(key === "1" ? "again" : key === "2" ? "hard" : "good");
+      }
+    });
+
+    article.addEventListener("reveal", function () {
+      answer.hidden = false;
+      revealToggle.textContent = "收起答案";
+      revealToggle.setAttribute("aria-expanded", "true");
+      if (item.kind === "single_choice" && typeof item.answer_index === "number") {
+        optionNodes.forEach(function (node, index) {
+          node.classList.remove("correct", "wrong");
+          if (index === item.answer_index) node.classList.add("correct");
+          else if (answers[item.id] === index) node.classList.add("wrong");
+        });
+      }
+    });
+    article.addEventListener("hide", function () {
+      answer.hidden = true;
+      revealToggle.textContent = "看答案";
+      revealToggle.setAttribute("aria-expanded", "false");
+      if (correctionBox) correctionBox.hidden = true;
+      optionNodes.forEach(function (node) {
+        node.classList.remove("correct", "wrong");
+      });
+    });
+    return article;
+  }
+  renderItem.counter = 0;
+
+  function svgNode(text) {
+    try {
+      var doc = new DOMParser().parseFromString(String(text || ""), "image/svg+xml");
+      var svg = doc.documentElement;
+      if (!svg || svg.nodeName.toLowerCase() !== "svg") return null;
+      svg.querySelectorAll("script,foreignObject").forEach(function (node) {
+        node.remove();
+      });
+      svg.querySelectorAll("*").forEach(function (node) {
+        Array.prototype.slice.call(node.attributes).forEach(function (attr) {
+          if (/^on/i.test(attr.name)) node.removeAttribute(attr.name);
+        });
+        // Providers are supposed to sanitize server-side, but this function is
+        // the last stop before the DOM: keep only same-document references, so
+        // a future provider cannot smuggle an external link past it.
+        ["href", "xlink:href", "src", "srcset"].forEach(function (name) {
+          var value = node.getAttribute(name);
+          if (value === null) return;
+          var trimmed = value.trim();
+          var safe = trimmed.charAt(0) === "#" ||
+            /^data:image\/(png|jpeg|gif|webp);base64,/i.test(trimmed);
+          if (!safe) node.removeAttribute(name);
+        });
+      });
+      return document.importNode(svg, true);
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function renderFigure(figureId, figure) {
+    var box = el("figure", "figure");
+    // The visible heading and the accessible name must agree; an untitled
+    // figure still needs *some* name, otherwise screen readers announce a
+    // bare "graphic" with no clue what it depicts.
+    var figureTitle = (figure && figure.title) || figureId || "图";
+    box.appendChild(el("div", "figure-title", figureTitle));
+    var svg = figure && figure.render && svgNode(figure.render.svg);
+    if (svg) {
+      // Provider SVGs carry no semantics of their own. ``svgNode`` only strips
+      // event handlers, so these attributes survive the import; setting them
+      // here (rather than inside the sanitizer) keeps the sanitizer reusable.
+      svg.setAttribute("role", "img");
+      svg.setAttribute("aria-label", figureTitle);
+      svg.setAttribute("focusable", "false");
+      // A provider that marked its output decorative would otherwise silence
+      // the label we just set.
+      svg.removeAttribute("aria-hidden");
+      box.appendChild(svg);
+    } else {
+      var placeholder = el(
+        "div",
+        "placeholder",
+        "图暂不可用：" + ((figure && figure.render && figure.render.warning) || "未生成")
+      );
+      // A placeholder is an explanatory note, not an image: expose it as a
+      // note so assistive tech does not count it as a rendered figure.
+      placeholder.setAttribute("role", "note");
+      box.appendChild(placeholder);
+    }
+    if (figure && figure.caption) {
+      box.appendChild(el("p", "figure-caption", figure.caption));
+    }
+    return box;
+  }
+
+  // ``slider_plot`` draws the already-computed ``values`` array as a polyline.
+  // The browser never evaluates the expression: it only places points by index,
+  // which keeps the server-side AST as the single execution path.
+  var WIDGET_PLOT_WIDTH = 320;
+  var WIDGET_PLOT_HEIGHT = 120;
+  var WIDGET_PLOT_PAD = 10;
+  var SVG_NS = "http://www.w3.org/2000/svg";
+
+  function renderWidgetPlot(widgetId, widget, values) {
+    var svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("class", "widget-plot");
+    svg.setAttribute("viewBox", "0 0 " + WIDGET_PLOT_WIDTH + " " + WIDGET_PLOT_HEIGHT);
+    svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+    svg.setAttribute("role", "img");
+    // The title often already ends in 曲线/图; appending unconditionally would
+    // make the accessible name read "平方曲线 曲线".
+    var plotName = (widget && widget.title) || widgetId;
+    if (plotName.indexOf("曲线") < 0 && plotName.indexOf("图") < 0) {
+      plotName += " 曲线";
+    }
+    svg.setAttribute("aria-label", plotName);
+    svg.setAttribute("focusable", "false");
+    var width = WIDGET_PLOT_WIDTH;
+    var height = WIDGET_PLOT_HEIGHT;
+    var pad = WIDGET_PLOT_PAD;
+    var spanX = Math.max(1, width - pad * 2);
+    var spanY = Math.max(1, height - pad * 2);
+    var low = Infinity;
+    var high = -Infinity;
+    values.forEach(function (value) {
+      var number = Number(value);
+      if (!isFinite(number)) return;
+      if (number < low) low = number;
+      if (number > high) high = number;
+    });
+    var flat = !isFinite(low) || !isFinite(high) || high === low;
+    function pointX(index) {
+      var last = Math.max(1, values.length - 1);
+      return pad + (index / last) * spanX;
+    }
+    function pointY(value) {
+      if (flat) return height / 2;
+      var ratio = (Number(value) - low) / (high - low);
+      if (!isFinite(ratio)) ratio = 0.5;
+      return height - pad - ratio * spanY;
+    }
+    // Two hairlines stand in for axes; a full tick set would crowd a 320px box.
+    var xAxis = document.createElementNS(SVG_NS, "line");
+    xAxis.setAttribute("x1", String(pad));
+    xAxis.setAttribute("y1", String(height - pad));
+    xAxis.setAttribute("x2", String(width - pad));
+    xAxis.setAttribute("y2", String(height - pad));
+    xAxis.setAttribute("stroke", "#c9d1da");
+    xAxis.setAttribute("stroke-width", "1");
+    xAxis.setAttribute("aria-hidden", "true");
+    svg.appendChild(xAxis);
+    var yAxis = document.createElementNS(SVG_NS, "line");
+    yAxis.setAttribute("x1", String(pad));
+    yAxis.setAttribute("y1", String(pad));
+    yAxis.setAttribute("x2", String(pad));
+    yAxis.setAttribute("y2", String(height - pad));
+    yAxis.setAttribute("stroke", "#c9d1da");
+    yAxis.setAttribute("stroke-width", "1");
+    yAxis.setAttribute("aria-hidden", "true");
+    svg.appendChild(yAxis);
+    var points = values.map(function (value, index) {
+      return pointX(index).toFixed(2) + "," + pointY(value).toFixed(2);
+    });
+    var polyline = document.createElementNS(SVG_NS, "polyline");
+    polyline.setAttribute("points", points.join(" "));
+    polyline.setAttribute("fill", "none");
+    polyline.setAttribute("stroke", "var(--accent)");
+    polyline.setAttribute("stroke-width", "2");
+    polyline.setAttribute("stroke-linejoin", "round");
+    polyline.setAttribute("stroke-linecap", "round");
+    polyline.setAttribute("aria-hidden", "true");
+    svg.appendChild(polyline);
+    var marker = document.createElementNS(SVG_NS, "circle");
+    marker.setAttribute("r", "4");
+    marker.setAttribute("fill", "var(--accent)");
+    marker.setAttribute("aria-hidden", "true");
+    svg.appendChild(marker);
+    function move(index) {
+      var safe = Math.max(0, Math.min(values.length - 1, index));
+      marker.setAttribute("cx", pointX(safe).toFixed(2));
+      marker.setAttribute("cy", pointY(values[safe]).toFixed(2));
+    }
+    move(0);
+    return { node: svg, move: move };
+  }
+
+  function renderWidget(widgetId, widget) {
+    var box = el("div", "widget");
+    box.appendChild(el("div", "widget-title", (widget && widget.title) || widgetId));
+    if (widget && widget.formula_latex) {
+      var formula = String(widget.formula_latex);
+      box.appendChild(el(
+        "div",
+        "widget-formula",
+        formula.indexOf("$") >= 0 ? formula : "$$" + formula + "$$"
+      ));
+    }
+    var render = widget && widget.render;
+    if (!render || !render.values || !render.values.length) {
+      var unavailable = el(
+        "div",
+        "placeholder",
+        "滑块暂不可用：" + ((render && render.warning) || "未生成")
+      );
+      unavailable.setAttribute("role", "note");
+      box.appendChild(unavailable);
+      return box;
+    }
+    var values = render.values;
+    var minimum = Number(widget.minimum);
+    var maximum = Number(widget.maximum);
+    var step = Number(widget.step) || (maximum - minimum) / 100;
+    var precision = Number(widget.precision);
+    if (!isFinite(precision)) precision = 3;
+    // `toFixed` throws RangeError for anything outside 0..100; the schema
+    // clamps `precision` to 0..6, but a hand-edited payload must not be able
+    // to kill every later update (the plot marker moves inside `update()`).
+    precision = Math.min(6, Math.max(0, Math.trunc(precision)));
+    var unit = String((widget && widget.unit) || "").trim();
+    // Only ``slider_plot`` adds a plot; ``slider_formula`` keeps the exact DOM
+    // it had before so existing exports stay byte-identical.
+    var plot = null;
+    if (widget && widget.kind === "slider_plot") {
+      plot = renderWidgetPlot(widgetId, widget, values);
+      box.appendChild(plot.node);
+    }
+    var input = document.createElement("input");
+    input.type = "range";
+    input.className = "widget-range";
+    input.id = "widget-" + widgetId;
+    input.min = String(minimum);
+    input.max = String(maximum);
+    input.step = String(step);
+    input.value = String(minimum);
+    input.setAttribute("aria-label", (widget.title || widgetId) + " 参数");
+    var output = el("output", "widget-value", "");
+    output.setAttribute("for", input.id);
+    output.setAttribute("aria-live", "polite");
+    var reset = el("button", "widget-reset", "重置");
+    reset.type = "button";
+    function update() {
+      var ratio = maximum === minimum ? 0 : (Number(input.value) - minimum) / (maximum - minimum);
+      var index = Math.max(0, Math.min(values.length - 1, Math.round(ratio * (values.length - 1))));
+      var text = Number(values[index]).toFixed(precision) + unit;
+      output.textContent = text;
+      if (plot) plot.move(index);
+      // Range inputs announce the raw number; ``aria-valuetext`` replaces it
+      // with the same human-facing string the sighted user reads (value + unit).
+      input.setAttribute("aria-valuetext", text);
+    }
+    input.addEventListener("input", update);
+    reset.addEventListener("click", function () {
+      input.value = String(minimum);
+      update();
+    });
+    var controls = el("div", "widget-controls");
+    controls.appendChild(input);
+    controls.appendChild(output);
+    controls.appendChild(reset);
+    box.appendChild(controls);
+    update();
+    return box;
+  }
+
+  function renderConceptGraph(graph) {
+    var chapter = el("section", "chapter");
+    var head = el("div", "chapter-head");
+    head.appendChild(el("h2", "", "概念依赖"));
+    chapter.appendChild(head);
+    var svg = graph && graph.svg ? svgNode(graph.svg) : null;
+    if (svg) {
+      var box = el("figure", "figure");
+      svg.setAttribute("role", "img");
+      svg.setAttribute("aria-label", "概念依赖图");
+      svg.setAttribute("focusable", "false");
+      svg.removeAttribute("aria-hidden");
+      box.appendChild(svg);
+      box.appendChild(el("p", "figure-caption", "先修概念指向后继概念；虚线框为起点概念。"));
+      chapter.appendChild(box);
+    } else {
+      var note = el(
+        "div",
+        "placeholder",
+        "概念图暂不可用：" + ((graph && graph.warning) || "未生成")
+      );
+      note.setAttribute("role", "note");
+      chapter.appendChild(note);
+    }
+    root.appendChild(chapter);
+  }
+
+  if (data.concept_graph) {
+    renderConceptGraph(data.concept_graph);
+  }
+
+  data.sections.forEach(function (section) {
+    var chapter = el("section", "chapter");
+    var chapterHead = el("div", "chapter-head");
+    chapterHead.appendChild(el("h2", "", section.title));
+    var itemCount = (section.blocks || []).filter(function (block) {
+      return block.kind === "item";
+    }).length;
+    if (itemCount) chapterHead.appendChild(el("span", "chapter-count", itemCount + " 题"));
+    chapter.appendChild(chapterHead);
+    (section.concept_ids || []).forEach(function (conceptId) {
+      var concept = data.concepts[conceptId];
+      if (!concept || !concept.formulas || !concept.formulas.length) return;
+      var box = el("div", "formulas");
+      concept.formulas.forEach(function (formula) {
+        var row = el("div", "formula");
+        row.appendChild(el("div", "formula-latex", "$$" + formula.latex + "$$"));
+        if (formula.conditions) {
+          row.appendChild(el("div", "formula-note", "条件：" + formula.conditions));
+        }
+        var names = Object.keys(formula.variables || {});
+        if (names.length) {
+          row.appendChild(el(
+            "div",
+            "formula-note",
+            "变量：" + names.map(function (name) {
+              return name + " — " + formula.variables[name];
+            }).join("；")
+          ));
+        }
+        box.appendChild(row);
+      });
+      chapter.appendChild(box);
+    });
+    section.blocks.forEach(function (block) {
+      if (block.kind === "prose") {
+        var p = el("div", "prose");
+        appendBlocks(p, block.text);
+        chapter.appendChild(p);
+      } else if (block.kind === "callout") {
+        var callout = el("div", "callout " + (block.tone || "info"));
+        if (block.format === "symbols") callout.classList.add("symbols-callout");
+        appendBlocks(callout, block.text);
+        chapter.appendChild(callout);
+      } else if (block.kind === "summary") {
+        var summary = el("div", "summary");
+        appendBlocks(summary, block.text);
+        chapter.appendChild(summary);
+      } else if (block.kind === "item") {
+        chapter.appendChild(renderItem(block.item));
+      } else if (block.kind === "figure") {
+        chapter.appendChild(renderFigure(block.figure.id, data.figures[block.figure.id]));
+      } else if (block.kind === "widget") {
+        chapter.appendChild(renderWidget(block.widget.id, data.widgets[block.widget.id]));
+      }
+    });
+    root.appendChild(chapter);
+  });
+
+  // Chapter chips in the sticky bar, mirroring the study-book's tab row.
+  var chapterNodes = [].slice.call(root.querySelectorAll("section.chapter"));
+  var topLinks = document.getElementById("topbar-links");
+  chapterNodes.forEach(function (node, index) {
+    node.id = "ch-" + (index + 1);
+    if (!topLinks) return;
+    var heading = node.querySelector("h2");
+    var label = heading ? heading.textContent : "";
+    if (!label) return;
+    if (label.length > 14) label = label.slice(0, 13) + "…";
+    var link = document.createElement("a");
+    link.href = "#ch-" + (index + 1);
+    link.textContent = (index + 1) + " " + label;
+    topLinks.appendChild(link);
+  });
+  if (chapterNodes.length < 2 && topLinks) topLinks.remove();
+
+  document.querySelectorAll(".mode-switch button").forEach(function (button) {
+    button.addEventListener("click", function () {
+      setMode(button.getAttribute("data-mode"), true);
+    });
+  });
+  setMode(getMode(), false);
+
+  document.getElementById("reveal-all").addEventListener("click", function () {
+    root.querySelectorAll(".item").forEach(function (node) {
+      node.dispatchEvent(new Event("reveal"));
+    });
+  });
+  document.getElementById("hide-all").addEventListener("click", function () {
+    root.querySelectorAll(".item").forEach(function (node) {
+      node.dispatchEvent(new Event("hide"));
+    });
+  });
+  document.getElementById("print").addEventListener("click", function () {
+    // Printing before MathJax finishes yields raw $...$ text and a stale
+    // "正在排版公式" counter, so wait for the ready flag, but never hang.
+    var timer = null;
+    var observer = null;
+    var printed = false;
+    function printNow() {
+      if (printed) return;
+      printed = true;
+      if (observer) observer.disconnect();
+      if (timer !== null) window.clearTimeout(timer);
+      window.print();
+    }
+    if (document.body.classList.contains("mathjax-ready")) {
+      printNow();
+      return;
+    }
+    if (typeof window.MutationObserver === "function") {
+      observer = new window.MutationObserver(function () {
+        if (document.body.classList.contains("mathjax-ready")) printNow();
+      });
+      observer.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+    }
+    timer = window.setTimeout(printNow, 3000);
+  });
+
+  var footer = document.getElementById("footer");
+  footer.appendChild(document.createTextNode(data.footer_note));
+  if (data.snapshot) {
+    footer.appendChild(document.createElement("br"));
+    footer.appendChild(document.createTextNode(
+      "状态快照：" + data.snapshot.concepts.length + " 个概念，生成于 " + data.snapshot.generated_at
+    ));
+  }
+
+  function typesetMath() {
+    var warning = null;
+    function showWarning() {
+      if (warning) return;
+      warning = el("p", "callout warning", "部分公式无法离线渲染，已保留原文；其他公式仍可阅读，请对照来源核对。");
+      warning.id = "math-warning";
+      warning.setAttribute("role", "status");
+      warning.setAttribute("aria-live", "polite");
+      root.parentNode.insertBefore(warning, root);
+    }
+    if (!window.MathJax || !window.MathJax.typesetPromise) {
+      // A math-free export intentionally ships without the renderer. Warn only
+      // when the page actually contains something to typeset, and mark the
+      // page ready so Print does not wait for a typesetter that will never run.
+      if (root.querySelector(".math,.formula-latex,.widget-formula")) showWarning();
+      document.body.classList.add("mathjax-ready");
+      return;
+    }
+    var run = function () {
+      var nodes = Array.prototype.slice.call(root.querySelectorAll(".math,.formula-latex,.widget-formula"));
+      var progress = null;
+      if (nodes.length > 128) {
+        progress = el("p", "callout", "正在排版公式：0 / " + nodes.length);
+        progress.id = "math-progress";
+        progress.setAttribute("role", "status");
+        root.parentNode.insertBefore(progress, root);
+      }
+      function restoreFailure(node, original) {
+        node.textContent = original;
+        node.setAttribute("data-math-failed", "true");
+        showWarning();
+      }
+      function checkNode(node, original) {
+        if (node.querySelector('[data-mml-node="merror"],mjx-merror,[data-mjx-error]')) {
+          restoreFailure(node, original);
+        }
+      }
+      var chain = Promise.resolve();
+      for (var offset = 0; offset < nodes.length; offset += 32) {
+        (function (batch, completed) {
+          chain = chain.then(function () {
+            var originals = batch.map(function (node) { return node.textContent; });
+            return window.MathJax.typesetPromise(batch).then(function () {
+              batch.forEach(function (node, index) { checkNode(node, originals[index]); });
+            }).catch(function () {
+              window.MathJax.typesetClear(batch);
+              batch.forEach(function (node, index) { node.textContent = originals[index]; });
+              var recovery = Promise.resolve();
+              batch.forEach(function (node, index) {
+                recovery = recovery.then(function () {
+                  return window.MathJax.typesetPromise([node]).then(function () {
+                    checkNode(node, originals[index]);
+                  }).catch(function () { restoreFailure(node, originals[index]); });
+                });
+              });
+              return recovery;
+            }).then(function () {
+              if (progress) progress.textContent = "正在排版公式：" + completed + " / " + nodes.length;
+              // Every typesetPromise re-walks all math items still registered
+              // with the document, so leaving earlier batches registered makes
+              // batch k walk k items (O(n²/32)). The rendered SVG stays in the
+              // DOM; dropping the registry keeps each walk to this batch.
+              if (window.MathJax.typesetClear) window.MathJax.typesetClear();
+              return new Promise(function (resolve) { window.setTimeout(resolve, 0); });
+            });
+          });
+        })(nodes.slice(offset, offset + 32), Math.min(offset + 32, nodes.length));
+      }
+      chain.then(function () {
+        if (progress) progress.remove();
+        document.body.classList.add("mathjax-ready");
+      }, function () {
+        // Failed batches already restored their source text; drop the stale
+        // progress line and let print proceed instead of blocking on it.
+        if (progress) progress.remove();
+        document.body.classList.add("mathjax-ready");
+        showWarning();
+      });
+    };
+    if (window.MathJax.startup && window.MathJax.startup.promise) {
+      window.MathJax.startup.promise.then(run).catch(showWarning);
+    } else {
+      run();
+    }
+  }
+  // Session progress, one authored completion moment, and the theme toggle.
+  var THEME_KEY="review-studio:theme",reduceMotion=!!(window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  function systemDark(){return !!(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches);}
+  function applyTheme(theme,persist){if(theme==="dark"||theme==="light")document.documentElement.setAttribute("data-theme",theme);else document.documentElement.removeAttribute("data-theme");var b=document.getElementById("theme-toggle");if(b){var dark=theme?theme==="dark":systemDark();b.setAttribute("aria-pressed",dark?"true":"false");b.setAttribute("aria-label",dark?"切换到浅色模式":"切换到深色模式");}if(persist){try{window.localStorage.setItem(THEME_KEY,theme);}catch(err){}}}
+  var savedTheme=null;try{savedTheme=window.localStorage.getItem(THEME_KEY);}catch(err){}
+  if(savedTheme!=="dark"&&savedTheme!=="light")savedTheme=null;applyTheme(savedTheme,false);
+  var themeButton=document.getElementById("theme-toggle");
+  if(themeButton)themeButton.addEventListener("click",function(){var current=document.documentElement.getAttribute("data-theme");var dark=current?current==="dark":systemDark();applyTheme(dark?"light":"dark",true);});
+  function ratingFor(node){return getStored(node.getAttribute("data-item-id"));}
+  function focusNext(){var nodes=[].slice.call(root.querySelectorAll(".item")),target=null;for(var i=0;i<nodes.length;i+=1){if(!ratingFor(nodes[i])){target=nodes[i];break;}}if(!target)target=nodes[0];if(!target)return;target.scrollIntoView({behavior:reduceMotion?"auto":"smooth",block:"center"});target.focus({preventScroll:true});}
+  function refreshSession(animate){var nodes=[].slice.call(root.querySelectorAll(".item")),total=nodes.length,done=0,good=0,hard=0,again=0,nextIndex=-1;var segments=document.getElementById("segments");if(segments&&segments.children.length!==total){while(segments.firstChild)segments.removeChild(segments.firstChild);nodes.forEach(function(){segments.appendChild(el("span","segment"));});}nodes.forEach(function(node,index){var rating=ratingFor(node);if(rating){done+=1;if(rating==="good")good+=1;else if(rating==="hard")hard+=1;else if(rating==="again")again+=1;}if(!rating&&nextIndex<0)nextIndex=index;if(segments&&segments.children[index])segments.children[index].setAttribute("data-state",rating||"todo");});var progress=document.getElementById("dock-progress");if(progress)progress.textContent=done+" / "+total;var meta=document.getElementById("dock-meta");if(meta){if(!total)meta.textContent="暂无题目";else if(done===total&&good===total)meta.textContent="全部很稳";else meta.textContent="很稳 "+good+" · 下次再见 "+(hard+again);}if(segments){segments.setAttribute("aria-valuemax",String(total));segments.setAttribute("aria-valuenow",String(done));}var nextLabel=document.getElementById("dock-next-label");if(nextLabel)nextLabel.textContent=nextIndex<0?"回到第一题":"下一题";var complete=document.getElementById("complete");if(complete){var finished=total>0&&done===total;complete.hidden=!finished;if(finished){document.getElementById("complete-count").textContent=String(done);document.getElementById("complete-good").textContent=String(good);document.getElementById("complete-again").textContent=String(hard+again);if(animate){complete.classList.remove("just-completed");void complete.offsetWidth;complete.classList.add("just-completed");}}}}
+  var startButton=document.getElementById("start-review");if(startButton)startButton.addEventListener("click",function(){setMode("selftest",true);focusNext();});
+  var dockNext=document.getElementById("dock-next");if(dockNext)dockNext.addEventListener("click",focusNext);
+  var completeTop=document.getElementById("complete-top");if(completeTop)completeTop.addEventListener("click",function(){var first=root.querySelector(".item");if(!first)return;first.scrollIntoView({behavior:reduceMotion?"auto":"smooth",block:"center"});first.focus({preventScroll:true});});
+  refreshSession(false);
+  typesetMath();
+})();
+</script>
+</body>
+</html>

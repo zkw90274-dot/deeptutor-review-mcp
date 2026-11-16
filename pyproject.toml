@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deeptutor-review"
+version = "1.7.2"
+description = "Review Studio MCP server: spaced-repetition review packs, today's queue, graded hints, self-assessment, offline export."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+keywords = ["mcp", "spaced-repetition", "review", "deeptutor", "education", "agent"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Education",
+    "Framework :: MCP",
+]
+dependencies = [
+    "deeptutor==1.7.2",
+    "deeptutor-mastery==1.7.2",
+    "fastapi",
+    "pydantic>=2",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8",
+    "pytest-asyncio",
+    "httpx",
+    "deeptutor-books==1.7.2",
+    "deeptutor-calendar==1.7.2",
+    "deeptutor-co-writer==1.7.2",
+    "deeptutor-server==1.7.2",
+]
+
+[project.scripts]
+deeptutor-review-mcp = "deeptutor.review.mcp_server:main"
+deeptutor-review-catalog = "deeptutor.review.integrations.mcp_catalog.apply:main"
+
+[project.urls]
+Homepage = "https://github.com/zkw90274-dot/deeptutor-review-mcp"
+Issues = "https://github.com/zkw90274-dot/deeptutor-review-mcp/issues"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"deeptutor.review" = ["templates/*"]
+"deeptutor.review.integrations.mcp_catalog" = ["*.json", "*.md"]
+"deeptutor.modules.manifests" = ["*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

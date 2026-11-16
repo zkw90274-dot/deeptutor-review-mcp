@@ -1,0 +1,509 @@
+"""Single-file offline HTML export (RS-401/403/404/405/507).
+
+The template is static and contains no network references. ``build_html`` is a
+pure function of ``(spec, states, now, include_snapshot)``; given the same
+arguments it produces byte-identical output. That property is tested and is
+what lets the exporter live without the Next.js frontend.
+"""
+
+from __future__ import annotations
+
+import html
+import re
+import time
+import uuid
+from functools import lru_cache
+from importlib.resources import files
+from typing import Any
+
+from deeptutor.learning.models import RepetitionState
+
+from deeptutor.review import concept_graph as concept_graph_provider
+from deeptutor.review.correction import build_correction
+from deeptutor.review.models import (
+    Item,
+    QualityReport,
+    ReviewSpec,
+    canonical_json,
+)
+from deeptutor.review.render import FigureRender, render_figure, render_widget
+from deeptutor.review.symbols import SYMBOL_HEADING, normalize_symbol_callout
+from deeptutor.review.timeutil import iso, tomorrow_window, zone
+
+MAX_BYTES = 8_000_000
+#: Wall-clock cap for all TikZ subprocess renders in one export. Each figure
+#: can spend up to 30s in xelatex plus 30s in pdftocairo; without a shared
+#: deadline a pack with many figures blocks the request for minutes. Figure
+#: kinds that do not shell out are unaffected, and cached TikZ renders are
+#: cheap enough that the deadline is rarely reached.
+MAX_TIKZ_RENDER_SECONDS = 120.0
+FOOTER_NOTE = (
+    "离线复习页：无外部依赖，断网可打开。"
+    "公式由内嵌 MathJax 渲染；"
+    "自评仅保存在本机浏览器，不会同步回服务器。"
+)
+#: Math-free pages ship without the renderer, so they must not claim one.
+FOOTER_NOTE_PLAIN = (
+    "离线复习页：无外部依赖，断网可打开。"
+    "自评仅保存在本机浏览器，不会同步回服务器。"
+)
+MATHJAX_CONFIG = (
+    r"<script>window.MathJax={"
+    r"loader:{load:[]},"
+    r"tex:{inlineMath:[['$','$'],['\\(','\\)']],"
+    r"displayMath:[['$$','$$'],['\\[','\\]']],packages:{'[-]':['autoload','require','noundefined']},"
+    # ``\oiint``/``\oiiint`` live in the esint extension, which the offline
+    # bundle cannot autoload (no network). Define them locally as a double
+    # integral with a circle above, the conventional closed-surface sign.
+    r"macros:{oiint:'\\overset{\\bigcirc}{\\iint}',oiiint:'\\overset{\\bigcirc}{\\iiint}'}},"
+    r"svg:{fontCache:'global'},options:{enableMenu:false},"
+    r"startup:{typeset:false}};</script>"
+)
+
+
+#: The delimiters the template's ``mathText`` splits on. A payload that matches
+#: any of them (or carries formulas/widget formulas, which are typeset without
+#: delimiters) needs the renderer; a page without math must not pay 2.1 MB for
+#: it. Keeping the pattern identical to the template is what makes the skip
+#: safe: anything the template would wrap in ``.math`` is detected here.
+_MATH_PATTERN = re.compile(
+    r"\$\$[\s\S]+?\$\$|\$[^$]+?\$|\\\([\s\S]+?\\\)|\\\[[\s\S]+?\\\]"
+)
+
+
+def _needs_mathjax(payload: dict[str, Any]) -> bool:
+    if any(concept["formulas"] for concept in payload["concepts"].values()):
+        return True
+    if any(widget.get("formula_latex") for widget in payload["widgets"].values()):
+        return True
+    return bool(_MATH_PATTERN.search(canonical_json(payload)))
+
+
+@lru_cache(maxsize=1)
+def _mathjax_block() -> str:
+    """Return the vendored MathJax config + tex-svg bundle.
+
+    The bundle is trusted local code, not learner content. It is injected only
+    after the rendered page has passed the external-URL check, because the
+    bundle contains W3C namespace strings (and an SRE CDN fallback that CSP
+    blocks) which are not network references.
+    """
+    bundle = (
+        files("deeptutor.review")
+        .joinpath("templates/tex-svg.js")
+        .read_text(encoding="utf-8")
+    )
+    if "</script" in bundle.lower():
+        raise ValueError("vendored MathJax bundle contains </script>")
+    return MATHJAX_CONFIG + "\n<script>" + bundle + "</script>"
+
+
+@lru_cache(maxsize=1)
+def _template() -> str:
+    return (
+        files("deeptutor.review")
+        .joinpath("templates/review.html")
+        .read_text(encoding="utf-8")
+    )
+
+
+def _answer_display(item: Item) -> str:
+    if item.kind == "single_choice" and item.answer.choice_index is not None:
+        option = item.options[item.answer.choice_index]
+        return f"{option.label}. {option.text}"
+    if item.kind == "numeric" and item.answer.value is not None:
+        if item.answer.tolerance:
+            return f"{item.answer.value:g}（容差 ±{item.answer.tolerance:g}）"
+        return f"{item.answer.value:g}"
+    return item.answer.text
+
+
+def _item_payload(spec: ReviewSpec, item: Item) -> dict[str, Any]:
+    return {
+        "id": item.id,
+        "kind": item.kind,
+        "stem": item.stem,
+        "difficulty": item.difficulty,
+        "options": [
+            {"label": option.label, "text": option.text} for option in item.options
+        ],
+        "answer_display": _answer_display(item),
+        "answer_index": item.answer.choice_index,
+        "explanation": item.explanation,
+        "study_aids": {
+            "assumptions": list(item.assumptions),
+            "self_check": item.self_check,
+            "pitfalls": list(item.pitfalls),
+            "table": item.study_table,
+        },
+        "correction": build_correction(spec, item),
+        "source_ids": item.source_ids,
+        "concept_ids": item.concept_ids,
+    }
+
+
+def _safe_json(payload: Any) -> str:
+    raw = canonical_json(payload)
+    # The payload is embedded in a <script> element. Escaping the first three
+    # characters keeps a literal </script> in learner content from closing the
+    # element; JSON.parse restores the original string exactly.
+    return (
+        raw.replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
+
+
+def _render_concept_graph(spec: ReviewSpec) -> dict[str, Any] | None:
+    """Render the prerequisite graph, or ``None`` when it carries no edges.
+
+    A graph whose concepts have no prerequisites is a column of disconnected
+    boxes: it states nothing the concept list does not already state, so it is
+    skipped rather than shipped as decoration. Every failure mode still yields
+    a payload with a warning, because a missing graph must be explainable.
+    """
+    if not any(concept.prerequisites for concept in spec.concepts):
+        return None
+    try:
+        # No in-SVG title: the chapter heading already names the graph, and a
+        # second title both duplicates the text and reserves vertical space.
+        rendered = concept_graph_provider.render_concept_graph(spec.concepts)
+    except Exception as exc:  # noqa: BLE001 - a bad graph must stay visible
+        return {
+            "svg": "",
+            "warning": f"concept graph render failed: {type(exc).__name__}",
+        }
+    if not rendered.svg:
+        return {"svg": "", "warning": rendered.warning or "概念图未生成"}
+    return {"svg": rendered.svg, "warning": rendered.warning}
+
+
+def _render_assets(
+    spec: ReviewSpec,
+) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
+    """Render trusted figures/widgets and collect visible-degradation warnings."""
+    figures: dict[str, Any] = {}
+    widgets: dict[str, Any] = {}
+    warnings: list[str] = []
+    tikz_deadline: float | None = None
+    for figure in spec.figures:
+        rendered: FigureRender | None = None
+        if figure.kind == "tikz":
+            now = time.monotonic()
+            if tikz_deadline is None:
+                tikz_deadline = now + MAX_TIKZ_RENDER_SECONDS
+            if now >= tikz_deadline:
+                rendered = FigureRender(
+                    "", warning="tikz render budget exhausted"
+                )
+        if rendered is None:
+            try:
+                rendered = render_figure(figure)
+            except Exception as exc:  # noqa: BLE001 - a bad asset must stay visible
+                rendered = FigureRender(
+                    "", warning=f"figure render failed: {type(exc).__name__}"
+                )
+        figures[figure.id] = {
+            # The raw source (SVG / TikZ) never reaches the reader: only the
+            # rendered, sanitized SVG does. Shipping it would duplicate bytes
+            # and leak LaTeX into the page.
+            **figure.model_dump(mode="json", exclude={"svg", "tikz"}),
+            "render": rendered.as_dict(),
+        }
+        if rendered.warning:
+            warnings.append(f"figure {figure.id}: {rendered.warning}")
+    for widget in spec.widgets:
+        try:
+            rendered_widget = render_widget(widget)
+        except Exception as exc:  # noqa: BLE001
+            from deeptutor.review.render import WidgetRender
+
+            rendered_widget = WidgetRender(warning=f"widget render failed: {type(exc).__name__}")
+        widgets[widget.id] = {
+            **widget.model_dump(mode="json"),
+            "render": rendered_widget.as_dict(),
+        }
+        if rendered_widget.warning:
+            warnings.append(f"widget {widget.id}: {rendered_widget.warning}")
+    return figures, widgets, warnings
+
+
+def _payload(
+    spec: ReviewSpec,
+    states: dict[str, RepetitionState],
+    *,
+    now: float,
+    include_snapshot: bool,
+    quality: QualityReport,
+    rendered_figures: dict[str, Any] | None = None,
+    rendered_widgets: dict[str, Any] | None = None,
+    concept_graph: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    tz = zone(spec.plan.timezone)
+    figure_index = {figure.id: figure for figure in spec.figures}
+    widget_index = {widget.id: widget for widget in spec.widgets}
+    item_index = {item.id: item for item in spec.items}
+
+    sections = []
+    referenced_items: set[str] = set()
+    for section in sorted(spec.sections, key=lambda row: (row.order, row.id)):
+        blocks: list[dict[str, Any]] = []
+        section_payload: dict[str, Any] = {
+            "id": section.id,
+            "title": section.title,
+            "order": section.order,
+            "concept_ids": list(section.concept_ids),
+            "blocks": blocks,
+        }
+        for block in section.blocks:
+            if block.kind in ("prose", "summary"):
+                blocks.append(block.model_dump(mode="json"))
+            elif block.kind == "callout":
+                row = block.model_dump(mode="json")
+                # Packs generated before the symbol normaliser stored the
+                # notes as a paragraph. Normalise at export time so an old
+                # pack renders as a list without rewriting its content hash.
+                if row["text"].lstrip().startswith(SYMBOL_HEADING):
+                    row["text"] = normalize_symbol_callout(row["text"])
+                    row["format"] = "symbols"
+                blocks.append(row)
+            elif block.kind == "item":
+                referenced_items.add(block.item_id)
+                blocks.append(
+                    {
+                        "kind": "item",
+                        "item": _item_payload(spec, item_index[block.item_id]),
+                    }
+                )
+            elif block.kind == "figure":
+                figure = figure_index.get(block.figure_id)
+                blocks.append(
+                    {
+                        "kind": "figure",
+                        "figure": {
+                            "id": block.figure_id,
+                            "title": figure.title if figure else "",
+                        },
+                    }
+                )
+            elif block.kind == "widget":
+                widget = widget_index.get(block.widget_id)
+                blocks.append(
+                    {
+                        "kind": "widget",
+                        "widget": {
+                            "id": block.widget_id,
+                            "title": widget.title if widget else "",
+                        },
+                    }
+                )
+        sections.append(section_payload)
+
+    # A section can omit an item (hand-edited spec or a generator bug). Never
+    # silently drop reviewable content from the offline page; surface it in a
+    # clearly named trailing section instead.
+    orphaned = [item for item in spec.items if item.id not in referenced_items]
+    if orphaned:
+        sections.append(
+            {
+                "id": "__ungrouped__",
+                "title": "其他题目",
+                "blocks": [
+                    {"kind": "item", "item": _item_payload(spec, item)}
+                    for item in orphaned
+                ],
+            }
+        )
+
+    tomorrow_date, start, end = tomorrow_window(now, spec.plan.timezone)
+    due_tomorrow = 0
+    for concept in spec.concepts:
+        state = states[concept.id]
+        if start <= state.next_review_at < end:
+            due_tomorrow += len(spec.items_for_concept(concept.id))
+
+    snapshot = None
+    if include_snapshot:
+        snapshot = {
+            "generated_at": iso(now, tz),
+            "concepts": [
+                {
+                    "concept_id": concept.id,
+                    "concept_key": concept.key,
+                    "name": concept.name,
+                    "next_due": iso(states[concept.id].next_review_at, tz),
+                    "next_due_ts": states[concept.id].next_review_at,
+                    "retrievability": round(states[concept.id].retrievability, 4),
+                    "review_count": states[concept.id].review_count,
+                    "lapse_count": states[concept.id].lapse_count,
+                }
+                for concept in spec.concepts
+            ],
+        }
+
+    # Long-term progress for the hero line. ``strong`` means "reviewed at
+    # least three times and never forgotten", not a retrievability value:
+    # retrievability decays with time and would hint at the forgetting curve
+    # before the learner has answered.
+    progress = {
+        "total": len(spec.concepts),
+        "reviewed": sum(
+            1 for concept in spec.concepts if states[concept.id].review_count > 0
+        ),
+        "strong": sum(
+            1
+            for concept in spec.concepts
+            if states[concept.id].review_count >= 3
+            and states[concept.id].lapse_count == 0
+        ),
+    }
+
+    return {
+        "schema_version": spec.schema_version,
+        "spec_id": spec.id,
+        "title": spec.title,
+        "language": spec.language,
+        "plan": {
+            "daily_minutes": spec.plan.daily_minutes,
+            "exam_date": spec.plan.exam_date.isoformat() if spec.plan.exam_date else None,
+            "timezone": spec.plan.timezone,
+            "target_retention": spec.plan.target_retention,
+        },
+        "sections": sections,
+        "figures": rendered_figures or {},
+        "widgets": rendered_widgets or {},
+        # ``None`` (rather than an empty object) tells the template there is
+        # nothing worth drawing; the runtime skips the block entirely.
+        "concept_graph": concept_graph,
+        "concepts": {
+            concept.id: {
+                "id": concept.id,
+                "name": concept.name,
+                "definition": concept.definition,
+                "formulas": [
+                    {
+                        "latex": formula.latex,
+                        "conditions": formula.conditions,
+                        "variables": formula.variables,
+                    }
+                    for formula in concept.formulas
+                ],
+            }
+            for concept in spec.concepts
+        },
+        "sources": {
+            source_id: {
+                "title": source.title,
+                "ref": source.ref,
+                "snippet": source.snippet,
+                "kind": source.kind,
+            }
+            for source_id, source in sorted(spec.sources.items())
+        },
+        "progress": progress,
+        "tomorrow": {"date": tomorrow_date, "due_items": due_tomorrow},
+        "snapshot": snapshot,
+        "quality": {
+            "passed": quality.passed,
+            "warnings": quality.warnings,
+        },
+        # Concepts the QA gates allow through without a source anchor (only
+        # non-kb coverage reaches export). Surfaced so the reader knows which
+        # definitions are paraphrased rather than cited.
+        "source_gaps": [
+            {"id": concept.id, "name": concept.name, "coverage": concept.coverage}
+            for concept in spec.concepts
+            if not concept.source_ids
+        ],
+        "footer_note": FOOTER_NOTE,
+    }
+
+
+def build_html(
+    spec: ReviewSpec,
+    states: dict[str, RepetitionState],
+    *,
+    now: float,
+    include_snapshot: bool = False,
+    quality: QualityReport,
+) -> str:
+    if not quality.passed:
+        raise ValueError("refusing to export a spec that failed QA gates")
+    rendered_figures, rendered_widgets, render_warnings = _render_assets(spec)
+    concept_graph = _render_concept_graph(spec)
+    if concept_graph is not None and concept_graph.get("warning"):
+        render_warnings.append(f"concept graph: {concept_graph['warning']}")
+    if render_warnings:
+        quality = quality.model_copy(
+            update={"warnings": [*quality.warnings, *render_warnings]}
+        )
+    payload = _payload(
+        spec,
+        states,
+        now=now,
+        include_snapshot=include_snapshot,
+        quality=quality,
+        rendered_figures=rendered_figures,
+        rendered_widgets=rendered_widgets,
+        concept_graph=concept_graph,
+    )
+    needs_mathjax = _needs_mathjax(payload)
+    if not needs_mathjax:
+        payload["footer_note"] = FOOTER_NOTE_PLAIN
+    template = _template()
+    # Escape braces in the title as entities so the title cannot introduce a
+    # second replacement token.
+    title_html = (
+        html.escape(spec.title, quote=True)
+        .replace("{", "&#123;")
+        .replace("}", "&#125;")
+        .replace("\x00", "")
+    )
+    if (
+        template.count("{{TITLE}}") != 1
+        or template.count("{{PAYLOAD}}") != 1
+        or template.count("{{MATHJAX}}") != 1
+    ):
+        raise ValueError("template token drift in export")
+    # Replace the template's MathJax token with a per-render sentinel *before*
+    # the payload is inserted. A fixed NUL sentinel would be forgeable by a
+    # title containing those exact bytes; the random nonce cannot be predicted
+    # from learner content, and ``json.dumps`` escapes NUL as ``\\u0000`` so a
+    # stem containing the literal ``{{MATHJAX}}`` is never re-scanned.
+    mathjax_sentinel = f"\x00MATHJAX-{uuid.uuid4().hex}\x00"
+    payload_json = _safe_json(payload)
+    if mathjax_sentinel in title_html or mathjax_sentinel in payload_json:
+        raise ValueError("unexpected sentinel collision in export")
+    rendered = (
+        template.replace("{{TITLE}}", title_html)
+        .replace("{{MATHJAX}}", mathjax_sentinel)
+        .replace("{{PAYLOAD}}", payload_json)
+    )
+    # Do not scan the rendered page for braces: learner content is allowed to
+    # contain the literal text ``{{PAYLOAD}}``; only the template is a contract.
+    # URL check runs before MathJax injection: the vendored bundle contains
+    # XML namespace strings and an SRE CDN fallback that CSP blocks. Generated
+    # SVG carries the W3C namespace, which is not a network dependency.
+    external = [
+        match.group(0)
+        for match in re.finditer(r"https?://[^\s\"'<>]+", rendered)
+        if not match.group(0)
+        .lower()
+        .startswith(("http://www.w3.org/", "https://www.w3.org/"))
+    ]
+    if external:
+        raise ValueError(f"offline export contains an external URL: {external[0]}")
+    # A math-free page renders every formula site as plain text, so shipping the
+    # 2.1 MB bundle would be pure dead weight. The template marks
+    # ``mathjax-ready`` and skips its warning when there is nothing to typeset.
+    rendered = rendered.replace(
+        mathjax_sentinel, _mathjax_block() if needs_mathjax else ""
+    )
+    encoded = rendered.encode("utf-8")
+    if len(encoded) > MAX_BYTES:
+        raise ValueError(
+            f"export is {len(encoded)} bytes, over the {MAX_BYTES}-byte W2 budget"
+        )
+    return rendered
