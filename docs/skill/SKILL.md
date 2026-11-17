@@ -141,6 +141,16 @@ When the learner asks for review material that does not exist yet:
 视觉与复习包共用一套令牌：浅色 `#eceef1` 画布 / `#fbfbfc` 卡片 / `#f5f6f7` 内层 / `#e5e7eb` 分隔 / `#0f766e` 强调；深色 `#0b0d0f` / `#16191c` / `#1b1e22` / `#262a30` / `#5ec8bd`；圆角 22/14/9px；60px 吸顶玻璃顶栏；按钮与 chip 全 pill。
 
 **绝不手改产物 HTML**：每本书留 build 脚本 + 内容片段（或 md）+ 题目/闪卡/组件的绑定数据，改完重建。计划任务的「资料」指向活书的节锚点（id 形如 `s<章>-<节>`），不指原始 md。
+
+### 活书性能（构建与首屏）
+
+- MathJax 配置 `startup: { typeset: false }`；用 IntersectionObserver（`rootMargin` 约 900px）只排接近视口的节，首屏先排前 2–3 节，并记录已排过的节；**绝不在启动时 typeset `document.body`**。
+- 刚显示的块（揭示答案、翻卡）按需排版；没有标记的块直接跳过，避免点击时 150–200ms 卡顿。
+- 屏幕外的节用 `content-visibility: auto` + 接近真实高度的 `contain-intrinsic-size`；`@media print` 恢复 `visible` / `none`，避免打印裁切。
+- 高度是估算值，页内锚点跳转用 `scrollIntoView({behavior: "instant"})`，约 160ms 后再对齐一次；不要用平滑滚动（长跳会偏出一千多像素）。整页扫描（每个 `.quiz`、每个选项）的 DOM 查询要缓存。
+- 打印按钮与 `p` 快捷键先排版全部节，再 `window.print()`；未排版的章节会把 `$...$` 原样打出来。
+- 验收：首屏 < 1s；点击选项不产生 > 100ms 的长任务。
+
 ## 卡片说活书的语言
 
 计划章节名来自知识库笔记（如 `第2章_作业`、`§2.1`），活书/讲义常用另一套编号（如 `01`、`2.1`）；只写笔记名与笔记编号，学习者翻书找不到地方。

@@ -370,9 +370,24 @@ class ReviewService:
         session_id: str | None = None,
         now: float | None = None,
         allow_recovery: bool = True,
+        read_only: bool = False,
     ) -> dict[str, Any]:
         spec = self.store.get_spec(spec_id)
         moment = time.time() if now is None else now
+        if read_only:
+            # A true read: no session is opened and no view is recorded. This
+            # is what ``--read-only`` promises; the default path deliberately
+            # reuses the open sitting and records views for the Today panel.
+            states = states_for_spec(spec, self.store, now=moment)
+            return build_today(
+                spec,
+                self.store,
+                now=moment,
+                session_id="",
+                states=states,
+                record_views=False,
+                allow_recovery=allow_recovery,
+            )
         # Reuse the open session instead of minting one per call. The agent
         # path calls ``today`` every time the learner asks "what now?", and a
         # fresh session per call inflates the session count while the learner

@@ -39,6 +39,7 @@ EXPECTED_TOOLS = {
     "review_generate": "ReviewGenerateTool",
     "review_hint": "ReviewHintTool",
     "review_plan": "ReviewPlanTool",
+    "review_book_figures": "ReviewBookFiguresTool",
 }
 
 
@@ -66,7 +67,7 @@ def test_manifest_tool_orders_are_unique_and_in_range() -> None:
     manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     orders = [entry["order"] for entry in manifest["tools"].values()]
     assert len(orders) == len(set(orders))
-    assert all(60 <= order <= 67 for order in orders)
+    assert all(60 <= order <= 68 for order in orders)
 
 
 def test_agent_tools_classes_exist_once_delivered() -> None:

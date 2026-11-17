@@ -179,10 +179,10 @@ deptutor stop
 
 | 数据 | 位置 |
 |---|---|
-| 复习历史（事件 / 会话 / 计划 / 笔记草稿） | `data/user/workspace/review/review.sqlite3` |
-| 日历 | `data/user/.runtime/calendar/calendar.sqlite` |
-| 看板 | `data/user/.runtime/task-board/tasks.sqlite` |
-| 笔记本 | `data/user/workspace/co-writer/documents/` |
+| 复习历史（事件 / 会话 / 计划 / 笔记草稿） | `<deeptutor home>/workspace/review/review.sqlite3` |
+| 日历 | `<deeptutor home>/.runtime/calendar/calendar.sqlite` |
+| 看板 | `<deeptutor home>/.runtime/task-board/tasks.sqlite` |
+| 笔记本 | `<deeptutor home>/workspace/co-writer/documents/` |
 
 备份：停止服务后直接复制这几个文件；恢复同理。SQLite 单文件，`PRAGMA integrity_check` 可自检。
 

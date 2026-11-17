@@ -147,7 +147,9 @@ def test_unknown_subject_is_reported(tmp_path: Path) -> None:
 def test_tool_writes_the_tree(service, tmp_path: Path) -> None:
     service.put_spec(build_fixture_spec())
     result = asyncio.run(
-        ReviewExportTreeTool().execute(out_dir=str(tmp_path / "tree"))
+        ReviewExportTreeTool().execute(
+            out_dir=str(service.store.home / "exports" / "tree")
+        )
     )
     payload = json.loads(result.content)
 
@@ -157,3 +159,15 @@ def test_tool_writes_the_tree(service, tmp_path: Path) -> None:
     assert Path(payload["index_path"]).is_file()
     assert payload["instruction"]
     assert "index.html" in payload["instruction"]
+
+
+def test_tool_rejects_an_out_dir_outside_the_review_home(service, tmp_path: Path) -> None:
+    service.put_spec(build_fixture_spec())
+    outside = tmp_path / "outside"
+    result = asyncio.run(ReviewExportTreeTool().execute(out_dir=str(outside)))
+    payload = json.loads(result.content)
+
+    assert result.success is True
+    assert "outside the allowed roots" in payload["error"]
+    assert "--allow-out-dir" in payload["instruction"]
+    assert not outside.exists()

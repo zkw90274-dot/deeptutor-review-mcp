@@ -232,6 +232,8 @@ def test_instructions_are_deployment_neutral() -> None:
 
     assert "DEEPTUTOR_REVIEW_HOME" in INSTRUCTIONS
     assert "/opt/course-notes" not in INSTRUCTIONS
+    assert len(INSTRUCTIONS) <= 1500
+    assert "docs/skill/SKILL.md" in INSTRUCTIONS
 
 
 def test_extra_context_appended_from_env(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -253,51 +255,50 @@ def test_extra_context_missing_file_is_ignored(tmp_path, monkeypatch: pytest.Mon
     monkeypatch.setenv("DEEPTUTOR_REVIEW_MCP_CONTEXT", str(tmp_path / "absent.md"))
     assert build_instructions() == INSTRUCTIONS.strip()
 
-def test_instructions_carry_the_plan_naming_rule() -> None:
-    """Plan tasks follow the material; the rule travels with the wheel."""
-    from deeptutor.review.mcp_server import INSTRUCTIONS
+def _skill_text() -> str:
+    from _layout import skill_dir
 
-    assert "part i/n" in INSTRUCTIONS
-    assert "(一)(二)(三)" in INSTRUCTIONS
-    assert "reading tasks after the material" in INSTRUCTIONS
-    assert "复习包：<chapter>" in INSTRUCTIONS
+    return (skill_dir() / "SKILL.md").read_text(encoding="utf-8")
 
 
-def test_instructions_rule_out_a_separate_book_pointer() -> None:
-    """The heading names the book chapter, so a pointer line is noise."""
-    from deeptutor.review.mcp_server import INSTRUCTIONS
+def test_skill_doc_carries_the_plan_naming_rule() -> None:
+    """The detail moved out of the handshake, not out of the product."""
+    text = _skill_text()
+    assert "第 i/n 段" in text
+    assert "（一）（二）（三）" in text
+    assert "读什么" in text and "时长切成段" in text
+    assert "「复习包：」" in text
 
-    assert "book-sections.json" in INSTRUCTIONS
-    assert "Never add a separate pointer line" in INSTRUCTIONS
+
+def test_skill_doc_rules_out_a_separate_book_pointer() -> None:
+    text = _skill_text()
+    assert "book-sections.json" in text
+    assert "不再输出独立的" in text
 
 
-def test_instructions_carry_the_material_style() -> None:
+def test_skill_doc_carries_the_material_style() -> None:
     """One source per subject, a living book, and the Review Studio skin."""
-    from deeptutor.review.mcp_server import INSTRUCTIONS
-
-    assert "One main study document per subject" in INSTRUCTIONS
-    assert "interactive living book" in INSTRUCTIONS
-    assert "Never hand-edit the built HTML" in INSTRUCTIONS
-    assert "#0f766e" in INSTRUCTIONS and "#5ec8bd" in INSTRUCTIONS
-    assert "s<chapter>-<n>" in INSTRUCTIONS
-    # Still deployment-neutral: no local directories or counts.
-    assert "/opt/course-notes" not in INSTRUCTIONS
+    text = _skill_text()
+    assert "只有一份主资料" in text
+    assert "单文件离线交互活书" in text
+    assert "绝不手改产物 HTML" in text
+    assert "#0f766e" in text and "#5ec8bd" in text
+    assert "s<章>-<节>" in text
 
 
-def test_instructions_carry_the_book_performance_rules() -> None:
+def test_skill_doc_carries_the_book_performance_rules() -> None:
     """A dense book must typeset and lay out lazily, or it stalls on open."""
-    from deeptutor.review.mcp_server import INSTRUCTIONS
-
-    assert "startup: { typeset: false }" in INSTRUCTIONS
-    assert "content-visibility: auto" in INSTRUCTIONS
-    assert "contain-intrinsic-size" in INSTRUCTIONS
-    assert 'behavior "instant"' in INSTRUCTIONS
-    assert "A print control" in INSTRUCTIONS
-    assert "long task over 100ms" in INSTRUCTIONS
+    text = _skill_text()
+    assert "startup: { typeset: false }" in text
+    assert "content-visibility: auto" in text
+    assert "contain-intrinsic-size" in text
+    assert 'behavior: "instant"' in text
+    assert "打印按钮" in text and "window.print()" in text
+    assert "100ms" in text
     # The three rules that make the lazy path actually cheap.
-    assert "IntersectionObserver" in INSTRUCTIONS
-    assert "900px" in INSTRUCTIONS
-    assert "160ms" in INSTRUCTIONS
-    assert "the DOM queries" in INSTRUCTIONS
+    assert "IntersectionObserver" in text
+    assert "900px" in text
+    assert "160ms" in text
+    assert "DOM 查询要缓存" in text
     # The rules stay generic: no book names, no local paths.
-    assert "secret-subject" not in INSTRUCTIONS and "/opt/course-notes" not in INSTRUCTIONS
+    assert "secret-subject" not in text and "/opt/course-notes" not in text

@@ -37,6 +37,7 @@ import asyncio
 import hmac
 import logging
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +45,7 @@ import mcp.types as types
 from mcp.server.lowlevel import Server
 
 from deeptutor.core.tool_protocol import BaseTool, ToolDefinition
+from deeptutor.review import capabilities
 from deeptutor.review.agent_tools import (
     ReviewAttemptTool,
     ReviewBookFiguresTool,
@@ -101,6 +103,61 @@ def _package_version() -> str:
         return "unknown"
 
 
+def _check() -> int:
+    """Report whether this install can serve the review module.
+
+    This is deliberately a diagnostic, not a repair: the common failure is a
+    core/wheel version mismatch, and the safe response is to stop before the
+    server starts rather than let an agent call tools that will 404.
+    """
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        core = version("deeptutor")
+    except PackageNotFoundError:  # pragma: no cover - import would already fail
+        core = "<not installed>"
+    wheel = _package_version()
+
+    gate = False
+    try:
+        from deeptutor.modules.catalog import module_enabled
+
+        gate = bool(module_enabled("review"))
+        gate_detail = "ok" if gate else "version mismatch"
+    except Exception as exc:  # manifest missing or catalog unavailable
+        gate_detail = f"unavailable ({exc})"
+
+    try:
+        from deeptutor.review.storage import review_home
+
+        home = str(review_home())
+    except Exception as exc:
+        home = f"<unresolved: {exc}>"
+
+    print(f"core deeptutor    : {core}")
+    print(f"deeptutor-review  : {wheel}")
+    print(f"module gate       : {gate_detail}")
+    print(f"review home       : {home}")
+    print(f"mcp tools         : {len(TOOL_CLASSES)}")
+    caps = capabilities.current()
+    print(
+        "capabilities      : "
+        f"read_only={caps.read_only} attempts={caps.attempts} plan={caps.plan} "
+        f"generate={caps.generate} export_write={caps.export_write}"
+    )
+
+    if core == wheel and gate:
+        print("ready: versions match and the review module is enabled")
+        return 0
+
+    print(
+        "not ready: deeptutor and deeptutor-review must be the same version, "
+        "and the module must be enabled. Do not downgrade the core; install "
+        "the wheel built for this core version instead."
+    )
+    return 1
+
+
 def _input_schema(definition: ToolDefinition) -> dict[str, Any]:
     """The tool's JSON Schema, from the same builder the chat uses.
 
@@ -118,118 +175,32 @@ def _input_schema(definition: ToolDefinition) -> dict[str, Any]:
 #: git when it lives under the ignored data directory.
 INSTRUCTIONS = """Review Studio - spaced review for DeepTutor
 
-The ten tools read and write one local review store. Its root is resolved at
-call time: DEEPTUTOR_REVIEW_HOME when set, otherwise <workspace>/review. The
-web UI, the offline export and these tools all share that store.
+The ten tools share one local review store: DEEPTUTOR_REVIEW_HOME when set,
+otherwise <workspace>/review. The web UI, offline export and these tools read
+the same store.
 
-Typical session: review_specs -> review_today -> review_hint (only when the
-learner is stuck) -> review_attempt -> next item. review_generate creates a new
-pack from one knowledge-base chapter; review_plan manages multi-week plans;
-review_export_link produces a single-file offline HTML page.
+Session: review_specs -> review_today -> review_hint (only when stuck) ->
+review_attempt -> next item. review_generate creates a pack from one
+knowledge-base chapter; review_plan manages multi-week plans;
+review_export_link returns one self-contained HTML page; review_export_tree
+writes the whole collection and returns index.html.
 
 Non-negotiable: never grade for the learner (transcribe their own again /
 hard / good only); never reveal an answer or an option before review_attempt;
-never improvise a hint - hints come only from review_hint. A freshly generated
-pack has no due cards until its first attempt.
+hints come only from review_hint; a freshly generated pack has no due cards
+until its first attempt. Do not paste pack contents into the chat.
 
-review_generate chapter must match a chapter name the knowledge base derives
-from its file layout (第N章 / 第N讲 / chN / 实验N_xxx); anything else returns
-"chapter ... not found".
+review_generate's chapter must match a name derived from the knowledge-base
+file layout (第N章 / 第N讲 / chN / 实验N_xxx); anything else returns
+"chapter ... not found". Plan tasks are named after the source material, never
+equal-time slices; follow review_plan and the review skill for the exact
+wording.
 
-Two exports, two jobs. review_export_link hands over one pack as a single
-self-contained HTML page (a link the host downloads). review_export_tree writes
-the whole collection to disk and returns the absolute path: one folder per
-subject, one HTML page per pack, plus index.html. That tree is the shared
-layout, not a per-call choice - <out_dir>/<subject>/<chapter>.html and
-<out_dir>/index.html, where subject and chapter are split from the pack title
-("<subject> · <chapter> 复习包") and made filesystem-safe. Every call rebuilds
-the tree from the store, so a renamed chapter leaves no stale page and no dated
-snapshot folders ever accumulate; packs failing the quality gates are skipped
-and reported, never silently written. Send the learner to index.html, and do
-not paste pack contents into the chat. These pages are the spaced-repetition
-packs for a chapter, not the living book's in-section quizzes or flashcards.
+The full living-book, plan-naming, visual, performance and figure rules are in
+the review skill (docs/skill/SKILL.md in the deeptutor-review-mcp repository).
+Never hand-edit a built book's HTML; rebuild it from its source.
 
-Plans name their reading tasks after the material, not after the clock: one
-task per source document or section, labelled "<chapter> · <document/section>".
-Never split a chapter into equal-time slices such as "part i/n". A document
-that spans several days stays one task and continues with a numbered suffix
-(一)(二)(三), not (上)/(下). A day note lists only that day's documents, groups
-them under the chapter once, marks the last one when the chapter is finished,
-and names the practice pack for every chapter touched that day. Say what to do
-today, never just how big the pack is: on the closing day "复习包：<chapter> ·
-今天做 N 题（一次做完）", while the chapter is still being read "复习包：<chapter>
-· 今天不做，学完本章后一次做完 N 题", "暂无复习包" when no pack exists. A pack
-holds a handful of items and fits one sitting (the queue's hard cap is 12), so
-only an oversized pack is split, as "今天做 12 题（共 N 题，余下按到期继续）"; a
-bare "共 N 题" must never stand alone, because it reads as "do all of them
-today" while the chapter is still in progress. The chapter's 完成 milestone
-carries the same pointer in its detail. The prefix is "复习包：" and never "练习：": the pack
-is the spaced-repetition set generated from that chapter, while the interactive
-book's in-section quizzes and flashcards are self-check only and are not
-scheduled - do not present them as the same thing. A deployment may also map each note onto a book section (book-map.json for chapter names, book-sections.json for section numbers, both keyed by the same note labels). When it does, the chapter heading is the book's chapter name and the rows are section numbers with titles, one row per section however many notes fold into it; a note that maps to nothing keeps its own label and that chapter falls back to note names. Never add a separate pointer line naming the book chapter: the heading already says it.
-
-One main study document per subject, and it is the most complete version. When a
-subject has accumulated several generations of the same material, keep the
-fuller one, merge any block that exists only in the older copy into it, move the
-rest out of the knowledge base (archive it, do not leave it next to the keeper),
-and reindex; a base that still holds two generations will produce packs and
-plans from both. Review packs are then regenerated from that one source.
-
-That document is an interactive living book: a single self-contained HTML file
-that works offline, with math typeset inline, no external script and no <img>
-(figures become inline SVG or a labelled placeholder). Its parts are a sticky
-top bar of chapter chips, a left table of contents with search, a per-section
-"mark as mastered" control plus a progress ring, and per-chapter auto-graded
-questions, flashcards and adjustable widgets - sliders that recompute a formula
-instead of a static screenshot. It supports a light and a dark theme and ships
-print CSS that drops the chrome for A4.
-
-Performance is a property of the book, not a later polish. A chapter-dense book
-runs to hundreds of formulas and ~10^5 DOM nodes; typesetting all of it at load
-blocks the first paint for seconds, and any interaction then re-lays out the
-whole document. Build it lazily:
-
-- MathJax config takes startup: { typeset: false }. Typeset a section only when
-  it approaches the viewport (an IntersectionObserver with roughly 900px of
-  rootMargin, plus the first two or three sections immediately), and keep a
-  record of the sections already done. Never typeset document.body at boot.
-- Typeset a block that just became visible (a revealed answer, a flipped card)
-  on demand, and skip blocks with no markup at all - that skip is what removes
-  the 150-200ms stall a click otherwise causes.
-- Off-screen sections get content-visibility: auto with a contain-intrinsic-size
-  near their real height, and @media print restores content-visibility: visible
-  and contain-intrinsic-size: none so no section is clipped on paper.
-- Heights are then estimates, so in-page anchor jumps must be instant
-  (scrollIntoView behavior "instant") with one re-align about 160ms later; HTML
-  smooth scrolling under-shoots long jumps by more than a thousand pixels. Cache
-  the DOM queries that scan the whole document (every .quiz, every option)
-  instead of re-running them per click.
-- A print control and the p shortcut typeset every section first and only then
-  call window.print(); printing an untypeset chapter emits raw $...$ text.
-
-Acceptance: first paint under a second, and choosing an option never produces a
-long task over 100ms.
-
-Use the Review Studio visual language, so every book and pack looks like one
-product: light canvas #eceef1, card #fbfbfc, inner #f5f6f7, hairline #e5e7eb,
-accent #0f766e; dark #0b0d0f / #16191c / #1b1e22 / #262a30 / #5ec8bd; corner
-radii 22/14/9px; a 60px sticky header with a translucent background and blur;
-pill buttons and chips; a hero title with tight negative letter-spacing.
-
-Book diagrams are inline SVG drawn inside the section that needs one, so they are
-invisible to a plan. A local index (book-figures.json, written by
-scripts/build-book-figures.py from the built books) records which section owns
-which figure, and review_book_figures reports it. When you send the learner to a
-section that carries a diagram, name the figure the way the book labels it
-(图 2-1) and say in one clause what it shows; a section absent from the index has
-none, so never promise one, and never paste SVG or base64 into the chat.
-
-Never hand-edit the built HTML. Each book keeps its build script plus content
-fragments (or markdown) and data files for questions, flashcards and widget
-bindings, so the page is reproducible; rebuild after changing content, and keep
-plan task details pointing at that book's section anchors (ids of the form
-s<chapter>-<n>) rather than at raw markdown.
-"""
+Operators may append deployment-specific notes through mcp-context.md."""
 
 #: Optional per-deployment context appended to INSTRUCTIONS. A public wheel
 #: stays generic; an operator can add local material (directory layout, course
@@ -393,10 +364,69 @@ async def _serve_stdio(server: Server[Any, Any]) -> None:
         )
 
 
+def _is_loopback(host: str) -> bool:
+    """True when binding ``host`` is reachable only from this machine."""
+    if host in {"localhost", "localhost.localdomain"}:
+        return True
+    try:
+        import ipaddress
+
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _configure_capabilities(args: argparse.Namespace) -> None:
+    """Translate CLI flags into the env vars the tool classes read."""
+    if args.read_only:
+        os.environ[capabilities.READ_ONLY] = "1"
+    if args.no_attempts:
+        os.environ[capabilities.NO_ATTEMPTS] = "1"
+    if args.no_plan:
+        os.environ[capabilities.NO_PLAN] = "1"
+    if args.no_generate or (
+        args.transport == "streamable-http" and not args.allow_generate
+    ):
+        os.environ[capabilities.NO_GENERATE] = "1"
+    if args.no_export_write:
+        os.environ[capabilities.NO_EXPORT_WRITE] = "1"
+    if args.allow_out_dir:
+        os.environ[capabilities.ALLOW_OUT_DIRS] = os.pathsep.join(args.allow_out_dir)
+
+
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="python -m deeptutor.review.mcp_server",
         description="Serve the Review Studio agent tools over MCP.",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Print version, module gate, review home and tool count; exit non-zero when not ready.",
+    )
+    parser.add_argument(
+        "--read-only",
+        action="store_true",
+        help="Disable attempts, plans, generation and export writes; today does not create a session or record views.",
+    )
+    parser.add_argument("--no-attempts", action="store_true", help="Disable review_attempt.")
+    parser.add_argument("--no-plan", action="store_true", help="Disable review_plan.")
+    parser.add_argument("--no-generate", action="store_true", help="Disable review_generate.")
+    parser.add_argument(
+        "--no-export-write",
+        action="store_true",
+        help="Disable review_export_tree; review_export_link stays available.",
+    )
+    parser.add_argument(
+        "--allow-generate",
+        action="store_true",
+        help="Allow review_generate on the HTTP transport (off by default there).",
+    )
+    parser.add_argument(
+        "--allow-out-dir",
+        action="append",
+        default=[],
+        help="Additional directory review_export_tree may write to; repeat for multiple roots.",
     )
     parser.add_argument(
         "--transport",
@@ -431,6 +461,28 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point: stdio by default, Streamable HTTP when asked."""
     args = _parse_args(argv)
+    _configure_capabilities(args)
+    if args.check:
+        return _check()
+
+    if args.transport == "streamable-http" and not _is_loopback(args.host):
+        if not os.environ.get(AUTH_TOKEN_ENV, "").strip():
+            print(
+                f"refusing to serve on {args.host} without {AUTH_TOKEN_ENV}; "
+                "bind 127.0.0.1 or set a bearer token.",
+                file=sys.stderr,
+            )
+            return 2
+
+    caps = capabilities.current()
+    logger.info(
+        "capabilities: read_only=%s attempts=%s plan=%s generate=%s export_write=%s",
+        caps.read_only,
+        caps.attempts,
+        caps.plan,
+        caps.generate,
+        caps.export_write,
+    )
     server = build_server()
 
     if args.transport == "stdio":

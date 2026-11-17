@@ -1,7 +1,7 @@
 """Hand-written Phase 0.5 fixture: 2 concepts, 3 items.
 
 No LLM is involved. The fixture exercises the three item kinds that the
-vertical slice must render and grade: single choice, numeric, and flashcard.
+vertical slice must render and check: single choice, numeric, and flashcard.
 It is also the acceptance script's seed. Content is deliberately standard
 textbook material (series RLC resonance) so the
 export can be checked by a human, not just by a schema validator.

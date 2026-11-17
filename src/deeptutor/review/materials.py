@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 from dataclasses import replace
 from pathlib import Path
@@ -29,7 +30,10 @@ _ORDINAL = re.compile(r"^\d{3,4}_")
 _EXTENSION = re.compile(r"\.(md|markdown|txt)$", re.IGNORECASE)
 _CHAPTER_PREFIX = re.compile(r"^第[0-9一二三四五六七八九十百]+章_")
 _PAGE_HEADING = re.compile(r"^第\s*[0-9]+\s*页")
-_SUBJECT_TOKENS = (
+#: Common textbook course names, used to recognise a subject in a file name.
+#: They are examples, not learner data; a deployment with a different catalog
+#: can override them with a comma-separated DEEPTUTOR_REVIEW_SUBJECT_TOKENS.
+_DEFAULT_SUBJECT_TOKENS = (
     "数字信号处理",
     "微机原理及应用",
     "电磁场与微波技术",
@@ -39,6 +43,11 @@ _SUBJECT_TOKENS = (
     "数字电子技术",
     "VHDL",
 )
+_SUBJECT_TOKENS = tuple(
+    part.strip()
+    for part in os.environ.get("DEEPTUTOR_REVIEW_SUBJECT_TOKENS", "").split(",")
+    if part.strip()
+) or _DEFAULT_SUBJECT_TOKENS
 
 TEXT_SUFFIXES = {".md", ".markdown", ".txt"}
 

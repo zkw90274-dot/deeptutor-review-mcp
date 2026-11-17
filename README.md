@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/zkw90274-dot/deeptutor-review-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/zkw90274-dot/deeptutor-review-mcp/actions/workflows/ci.yml)
 
-A standalone **MCP server for spaced-repetition review**: it turns course material into *review packs* and gives any MCP-capable agent the tools to quiz you, grade your answers, track weak concepts, and export a printable page.
+A standalone **MCP server for spaced-repetition review**: it turns course material into *review packs* and gives any MCP-capable agent the tools to quiz you, record your own three-level self-assessment (again / hard / good), track weak concepts, and export a printable page. It never grades for you.
 
 Ten tools, no DeepTutor web server required, no account required. Works over **stdio** (default) or **Streamable HTTP**.
 
@@ -98,8 +98,8 @@ Then say to the agent:
 |---|---|---|---|
 | `review_specs` | List stored packs (id, title, item/concept counts, gate result) | no | no |
 | `review_today` | Today's queue for one pack, answers withheld | no | no |
-| `review_attempt` | Record a graded answer, return mastery projection + correction | no | no |
-| `review_hint` | Graded hints (L1 pointer → L2 narrowing) | no | no |
+| `review_attempt` | Record the learner's own rating, return mastery projection + correction | no | no |
+| `review_hint` | Hint ladder (L1 pointer → L2 narrowing) | no | no |
 | `review_weakness` | Rank weak concepts from history | no | no |
 | `review_export_link` | One-pack offline HTML (single file) | no | no |
 | `review_export_tree` | Whole library as `<subject>/<chapter>.html` + index | no | no |
@@ -153,7 +153,7 @@ python examples/demo/seed.py          # 造一个 3 题的演示复习包
 deeptutor-review-mcp                  # stdio 启动，配置进你的 MCP 客户端即可
 ```
 
-十个工具里九个离线可用（列包、今日队列、作答判分、分级提示、薄弱点、导出单包/整库、活书插图）。只有「从知识库生成新复习包」需要知识库 + 模型配置；「排多周学习计划」需要知识库章节。所有数据都在 `DEEPTUTOR_REVIEW_HOME` 指向的目录里，备份它等于备份全部复习记录。
+十个工具里九个离线可用（列包、今日队列、作答自评、分级提示、薄弱点、导出单包/整库、活书插图）。只有「从知识库生成新复习包」需要知识库 + 模型配置；「排多周学习计划」需要知识库章节。所有数据都在 `DEEPTUTOR_REVIEW_HOME` 指向的目录里，备份它等于备份全部复习记录。
 
 ## License
 

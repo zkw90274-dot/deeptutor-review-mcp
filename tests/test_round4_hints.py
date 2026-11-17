@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -47,11 +48,22 @@ from deeptutor.review.models import (
 from deeptutor.review.service import ReviewService
 
 PACK_ID = "round4-hints"
-REAL_SPEC_IDS = ("kb-3a47352689-4", "kb-3a47352689-6")
-REAL_DATABASE = (
-    Path(__file__).resolve().parents[3]
-    / "data/user/workspace/review/review.sqlite3"
+#: Real packs are deployment data, not fixtures. The ids stay out of the public
+#: tree; a maintainer opts in with DEEPTUTOR_REAL_SPEC_IDS and
+#: DEEPTUTOR_REVIEW_HOME.
+REAL_SPEC_IDS = tuple(
+    part.strip()
+    for part in os.environ.get("DEEPTUTOR_REAL_SPEC_IDS", "").split(",")
+    if part.strip()
 )
+
+
+def _require_real_database() -> Path:
+    home = os.environ.get("DEEPTUTOR_REVIEW_HOME")
+    database = Path(home).expanduser() / "review.sqlite3" if home else None
+    if database is None or not database.exists():
+        pytest.skip("set DEEPTUTOR_REVIEW_HOME to a store containing the real packs")
+    return database
 
 
 # -- helpers ----------------------------------------------------------------
@@ -427,9 +439,8 @@ def test_a_paraphrased_normal_option_still_leaks() -> None:
 
 
 def _real_spec(spec_id: str) -> ReviewSpec:
-    if not REAL_DATABASE.exists():
-        pytest.skip(f"real review database not found: {REAL_DATABASE}")
-    connection = sqlite3.connect(REAL_DATABASE.as_uri() + "?mode=ro", uri=True)
+    database = _require_real_database()
+    connection = sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)
     try:
         row = connection.execute(
             "SELECT spec_json FROM review_specs WHERE spec_id = ?", (spec_id,)
@@ -441,14 +452,19 @@ def _real_spec(spec_id: str) -> ReviewSpec:
     return ReviewSpec.model_validate_json(row[0])
 
 
+@pytest.mark.skipif(
+    not REAL_SPEC_IDS,
+    reason="set DEEPTUTOR_REAL_SPEC_IDS to run against real packs",
+)
 @pytest.mark.parametrize("spec_id", REAL_SPEC_IDS)
 def test_a_real_generated_pack_still_falls_back(
     service: ReviewService, spec_id: str
 ) -> None:
+    database = _require_real_database()
     spec = _real_spec(spec_id)
     item = spec.item_by_id(f"{spec_id}-q001")
     correct = item.options[item.answer.choice_index].text
-    before = hashlib.sha256(REAL_DATABASE.read_bytes()).hexdigest()
+    before = hashlib.sha256(database.read_bytes()).hexdigest()
 
     service.put_spec(spec)
 
@@ -456,4 +472,4 @@ def test_a_real_generated_pack_still_falls_back(
         payload = _hint(spec.id, item.id, level=level)
         assert payload["fallback"] is True, (spec_id, level, payload["hint"])
         assert correct not in payload["hint"]
-    assert hashlib.sha256(REAL_DATABASE.read_bytes()).hexdigest() == before
+    assert hashlib.sha256(database.read_bytes()).hexdigest() == before

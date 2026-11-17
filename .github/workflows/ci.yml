@@ -4,14 +4,19 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # Weekly probe against the latest core release. The job reports drift as a
+    # warning instead of turning the shared CI red.
+    - cron: "0 3 * * 1"
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12"]
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v4
@@ -28,11 +33,36 @@ jobs:
           # namespace, which an editable install does not merge.
           python -m pip install ".[test]"
 
-      - name: Register catalog entry
-        run: deeptutor-review-catalog
+      - name: Check install
+        run: python -m deeptutor.review.mcp_server --check
 
       - name: Test
         run: python -m pytest -q
 
       - name: MCP smoke test
         run: python examples/demo/smoke.py
+
+  latest-core:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install latest core and this checkout
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade deeptutor deeptutor-mastery
+          python -m pip install pytest pytest-asyncio httpx
+          # Deliberately --no-deps: the point is to test the latest core, not
+          # to let the review wheel's pin downgrade it.
+          python -m pip install --no-deps .
+
+      - name: Probe core drift
+        run: |
+          python -m deeptutor.review.mcp_server --check || echo "::warning::deeptutor-review is not ready for the latest core"
+          python examples/demo/smoke.py || echo "::warning::stdio smoke failed against the latest core"

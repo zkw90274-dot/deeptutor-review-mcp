@@ -20,7 +20,7 @@
 ### 1.1 从源码安装（开发/自用推荐）
 
 ```bash
-pip install "deeptutor==1.7.2"
+pip install "deeptutor==1.7.3"
 pip install .        # 在本仓库根目录；不要用 -e
 ```
 
@@ -29,7 +29,7 @@ pip install .        # 在本仓库根目录；不要用 -e
 ```bash
 # 在本仓库根目录
 python -m pip wheel . --no-deps --no-build-isolation -w dist
-python -m pip install --force-reinstall --no-deps dist/deeptutor_review-1.7.2-py3-none-any.whl
+python -m pip install --force-reinstall --no-deps dist/deeptutor_review-1.7.3-py3-none-any.whl
 ```
 
 ### 1.3 从已发布的包安装
@@ -37,7 +37,7 @@ python -m pip install --force-reinstall --no-deps dist/deeptutor_review-1.7.2-py
 若 `deeptutor-review` 已发布到你可访问的索引（当前仓库不自带 PyPI 发布，公开使用请走 1.1 或 1.2）：
 
 ```bash
-pip install "deeptutor-review==1.7.2"
+pip install "deeptutor-review==1.7.3"
 ```
 
 ### 安装后检查

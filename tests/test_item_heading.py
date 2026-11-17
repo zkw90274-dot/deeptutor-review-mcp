@@ -38,11 +38,11 @@ console.log(JSON.stringify(cases.map(function (c) {
 })));
 """.replace("__SLICE__", SLICE)
 
-#: The real concept name behind kb-3a47352689-5-f83749-q006.
+#: A long real-world concept name used to pin the truncation boundary.
 Q006_CONCEPT = (
-    "实验三中改变负载电阻 RL 观察三种状态波形、"
-    "由实测峰峰值与集电极电源电压估算输出功率，"
-    "并联系负载特性说明集电极调幅的成因"
+    "改变负载电阻并观察输出波形，"
+    "由实测峰峰值与电源电压估算输出功率，"
+    "并联系负载特性说明非线性失真的成因与不同工作点下的变化趋势"
 )
 
 

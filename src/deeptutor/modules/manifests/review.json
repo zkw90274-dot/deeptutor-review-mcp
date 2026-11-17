@@ -43,6 +43,10 @@
     "review_plan": {
       "class_path": "deeptutor.review.agent_tools:ReviewPlanTool",
       "order": 67
+    },
+    "review_book_figures": {
+      "class_path": "deeptutor.review.agent_tools:ReviewBookFiguresTool",
+      "order": 68
     }
   },
   "routes": [

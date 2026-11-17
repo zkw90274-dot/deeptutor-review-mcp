@@ -60,7 +60,7 @@ from deeptutor.core.tool_protocol import (
     ToolParameter,
     ToolResult,
 )
-from deeptutor.review import export_tree, materials, plan_service
+from deeptutor.review import capabilities, export_tree, materials, plan_service
 from deeptutor.review.adapter import RATING_MAP
 from deeptutor.review.projection import project_attempt
 from deeptutor.review.qa import run_gates
@@ -188,6 +188,24 @@ def _soft(
 
 def _text(value: Any) -> str:
     return " ".join(str(value or "").split())
+
+
+def _resolve_export_dir(requested: str) -> tuple[Path | None, str | None]:
+    """Keep export trees inside the review home unless explicitly allowed."""
+    base = (review_home() / export_tree.DEFAULT_FOLDER).resolve()
+    roots = [base]
+    roots.extend(
+        Path(extra).expanduser().resolve()
+        for extra in capabilities.current().allowed_out_dirs
+    )
+    path = Path(requested).expanduser().resolve() if requested else base
+    if any(path == root or root in path.parents for root in roots):
+        return path, None
+    allowed = ", ".join(str(root) for root in roots)
+    return None, (
+        f"out_dir must be inside {allowed}; refusing {path}. Pass "
+        "--allow-out-dir when starting the server if this location is intentional."
+    )
 
 
 def _clip(value: Any, limit: int | None = None) -> str:
@@ -383,7 +401,9 @@ class ReviewTodayTool(BaseTool):
             return error or _failure("review_today could not resolve the pack.")
 
         try:
-            today = await asyncio.to_thread(service.today, spec.id)
+            today = await asyncio.to_thread(
+                service.today, spec.id, read_only=capabilities.current().read_only
+            )
         except Exception as exc:  # noqa: BLE001
             return _internal_failure(tool, exc)
 
@@ -462,7 +482,7 @@ class ReviewHintTool(BaseTool):
         return ToolDefinition(
             name="review_hint",
             description=(
-                "Give the learner a graded hint for one review item without "
+                "Give the learner a hint from the hint ladder for one review item without "
                 "revealing the answer. Level 1 points at the tested concept; "
                 "level 2 restates the concept's definition (and formula when "
                 "the pack has one). The text is derived deterministically "
@@ -1174,6 +1194,9 @@ class ReviewAttemptTool(BaseTool):
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         tool = "review_attempt"
+        blocked = capabilities.disabled(tool)
+        if blocked:
+            return _soft(tool=tool, error=f"{tool} is disabled", instruction=blocked)
         item_id = _text(kwargs.get("item_id"))
         rating = _text(kwargs.get("rating")).lower()
         session_id = _text(kwargs.get("session_id"))
@@ -1566,7 +1589,7 @@ class ReviewPlanTool(BaseTool):
                     name="subject",
                     type="string",
                     required=False,
-                    description="Knowledge base name, e.g. 高频 (create).",
+                    description="Knowledge base name, e.g. 模拟电路 (create).",
                 ),
                 ToolParameter(
                     name="chapters",
@@ -1713,6 +1736,9 @@ class ReviewPlanTool(BaseTool):
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         tool = "review_plan"
+        blocked = capabilities.disabled(tool)
+        if blocked:
+            return _soft(tool=tool, error=f"{tool} is disabled", instruction=blocked)
         action = str(kwargs.get("action") or "").strip().lower()
         if action not in self.ACTIONS:
             return _soft(
@@ -1999,10 +2025,19 @@ class ReviewExportTreeTool(BaseTool):
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         tool = "review_export_tree"
+        blocked = capabilities.disabled(tool)
+        if blocked:
+            return _soft(tool=tool, error=f"{tool} is disabled", instruction=blocked)
         try:
             service = await asyncio.to_thread(_service)
             requested = _text(kwargs.get("out_dir"))
-            out_dir = Path(requested).expanduser() if requested else review_home() / export_tree.DEFAULT_FOLDER
+            out_dir, out_dir_error = _resolve_export_dir(requested)
+            if out_dir_error:
+                return _soft(
+                    tool=tool,
+                    error="out_dir is outside the allowed roots",
+                    instruction=out_dir_error,
+                )
             raw_subjects = kwargs.get("subjects") or ()
             if isinstance(raw_subjects, str):
                 raw_subjects = [raw_subjects]
@@ -2203,6 +2238,9 @@ class ReviewGenerateTool(BaseTool):
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         tool = "review_generate"
+        blocked = capabilities.disabled(tool)
+        if blocked:
+            return _soft(tool=tool, error=f"{tool} is disabled", instruction=blocked)
         kb_name = _text(kwargs.get("kb"))
         if not kb_name:
             return _soft(
