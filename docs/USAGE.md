@@ -47,11 +47,9 @@ python -c "import deeptutor; print(deeptutor.__version__)"
 python -c "from importlib.metadata import version; print(version('deeptutor-review'))"
 ```
 
-两个版本号必须一致。装好后运行一次目录同步（让 MCP 工具目录认识本模块）：
-
-```bash
-deeptutor-review-catalog
-```
+两个版本号必须一致。装好后重启 `deeptutor`，核心会在启动时挂载 review 模块；
+不需要额外的目录同步命令（商店补丁 `deeptutor-review-catalog` 不在公开包内，
+仅存在于仓库的实验目录）。
 
 ## 2. 配置
 

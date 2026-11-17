@@ -39,16 +39,11 @@ Or install straight from git:
 pip install "git+https://github.com/zkw90274-dot/deeptutor-review-mcp.git"
 ```
 
-### DeepTutor desktop app (optional)
+### DeepTutor desktop app
 
-The package also ships an entry definition for the DeepTutor desktop app's MCP
-store. If you use that app and want the review server to show up there:
-
-```bash
-deeptutor-review-catalog     # patches the app's catalog once, safe to re-run
-```
-
-Everything below works without this step — plain MCP clients connect directly.
+The MCP store entry (`deeptutor-review-catalog`) is **not** part of the published
+package: it lives in the repository's experimental directory and is not built
+into the wheel. Plain MCP clients connect directly — see section 3.
 
 ## 2. Prove it works (no model, no knowledge base)
 
