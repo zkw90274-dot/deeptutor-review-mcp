@@ -1,9 +1,9 @@
 {
-  "source_commit": "f364dbde41d183d8964e00fc3b916242214cb7d8",
-  "source_commit_date": "2026-11-17T23:14:54+08:00",
+  "source_commit": "bb667ec1368b828081389af8b64ac4fc49d868b4",
+  "source_commit_date": "2026-11-17T23:59:07+08:00",
   "source_dirty": false,
   "target_core": "1.7.3",
-  "tree_sha256": "66d755460562949725df99c83273f8b924485b97b39e790c50004ed6e1f1a2fb",
+  "tree_sha256": "6f9126b87c6e82427b281cafe527197bd8115f02a3593a4ef83da3846f020906",
   "files": {
     ".gitattributes": "e753774a5c6c845d5b43db5e4e133c8b7308c233f036517be1e2ae01cb068790",
     ".github/ISSUE_TEMPLATE/bug_report.md": "3327d4eabc9ca8cd5aa2598025dfa29a64de9f6f628efce8c2e308308651e7b1",
@@ -12,7 +12,7 @@
     ".gitignore": "7639cf33f8f26b1f85c94bd86c5552ef050766b96cf480a4cbf406245fc64f28",
     "CHANGELOG.md": "6d6a514a22dc91dc890aca91396e464df66332a218dadc4035c1fcb4de0151e3",
     "LICENSE": "521c03cdad3de3184b4e5d431b1370db5b3e44ba1ebaab0b83c8b8df42aae5c8",
-    "README.md": "dd1957d4e88b5a9c2cf8421cabced3be527b298b8ffede5da6202e0e7600f00d",
+    "README.md": "173a300bd920b57e2b063af091c5b812303aca3dd4f300200d5ee026d2d18f98",
     "SECURITY.md": "5a437b9c6552ceafae26007a0175fe69a031fb460250bb383559113b8a1950b2",
     "docs/USAGE.md": "01cb944654d8d565c1a77cca81bdf7d4b294d1866c806b66ef09eff15331ef63",
     "docs/maintainer-notes.md": "78a98326c98b2993a1d024735ef9ea4e4adb2d9e71f577f8f058289b14230f08",

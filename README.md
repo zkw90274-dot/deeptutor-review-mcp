@@ -126,12 +126,18 @@ Everything is per-workspace, in one directory:
 
 Back up the home directory and you back up the learner's whole review history.
 
-## 6. Slightly deeper
+## 6. Documentation
 
-- `docs/usage-guide.md` — the full operator guide: pack lifecycle, quality gates, plan templates, exports, troubleshooting.
-- `docs/USAGE.md` — tool-by-tool parameters and return shapes.
-- `docs/skill/SKILL.md` — the agent-facing skill: how an agent should talk to a learner while reviewing.
-- `docs/maintainer-notes.md` — validation log and design decisions from this repo's own runs.
+| Need | Read |
+|---|---|
+| Install, configuration, backup, troubleshooting | [docs/USAGE.md](https://github.com/zkw90274-dot/deeptutor-review-mcp/blob/main/docs/USAGE.md) |
+| Pack lifecycle, quality gates, plans, exports | [docs/usage-guide.md](https://github.com/zkw90274-dot/deeptutor-review-mcp/blob/main/docs/usage-guide.md) |
+| Agent skill and review protocol | [docs/skill/SKILL.md](https://github.com/zkw90274-dot/deeptutor-review-mcp/blob/main/docs/skill/SKILL.md) |
+| Design and validation notes | [docs/maintainer-notes.md](docs/maintainer-notes.md) |
+| Security policy | [SECURITY.md](https://github.com/zkw90274-dot/deeptutor-review-mcp/blob/main/SECURITY.md) |
+| Changelog | [CHANGELOG.md](https://github.com/zkw90274-dot/deeptutor-review-mcp/blob/main/CHANGELOG.md) |
+
+> The public-only docs above live in the standalone repository; `docs/maintainer-notes.md` ships with this package.
 
 ## 7. Development
 
@@ -141,7 +147,7 @@ python -m pytest -q                 # unit + integration suite
 python examples/demo/smoke.py        # end-to-end MCP handshake
 ```
 
-CI runs both on Python 3.11 and 3.12 (see `.github/workflows/ci.yml`).
+CI runs Linux and Windows on Python 3.11, 3.12 and 3.13 (see `.github/workflows/ci.yml`).
 
 ## 8. 中文速览
 
