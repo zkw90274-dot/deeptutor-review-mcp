@@ -126,6 +126,17 @@ Everything is per-workspace, in one directory:
 
 Back up the home directory and you back up the learner's whole review history.
 
+## 5.1 Known issue: DeepSeek thinking models on core 1.7.3
+
+With DeepTutor core 1.7.3, `review_generate` and Book quiz-block generation can
+fail with `The reasoning_content in the thinking mode must be passed back to
+the API` when the active model is a thinking model such as `deepseek-flash`.
+The failure is in the core question/quiz pipeline, not in the MCP tools; it is
+tracked upstream in
+[HKUDS/DeepTutor#2766](https://github.com/HKUDS/DeepTutor/issues/2766).
+Until a fixed core release ships, use a non-thinking model (for example
+`deepseek-chat`) for generation. The other nine tools are unaffected.
+
 ## 6. Documentation
 
 | Need | Read |

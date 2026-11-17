@@ -1,7 +1,7 @@
 # Review Studio（复习工坊）· 使用说明
 
 > 把教材章节变成**能离线打开、能记录掌握情况、能排学习计划**的复习页。
-> 这份是给人看的操作手册；工程细节见[维护备注](maintainer-notes.md)。
+> 这份是给人看的操作手册；工程细节见[维护备注](https://github.com/zkw90274-dot/deeptutor-review-mcp/blob/main/docs/maintainer-notes.md)。
 
 ## 1. 它是什么
 
@@ -61,6 +61,7 @@ deptutor stop
 - `num_questions` 会被夹到 5–20；`question_types` 可选 `choice` / `written`。
 - 同一章重复生成会命中同一个包 id；要覆盖必须显式 `replace=true`。
 - 生成内容受门禁约束（数学分隔符必须配对、答案必须覆盖、解析不能空洞等）；不过门禁的内容不会进库。
+- **已知问题（core 1.7.3）**：使用 `deepseek-flash` 等 thinking 模型时，生成可能报 `reasoning_content in the thinking mode must be passed back`；改用 `deepseek-chat` 生成，或等上游 [HKUDS/DeepTutor#2766](https://github.com/HKUDS/DeepTutor/issues/2766) 修复。其余 9 个工具不受影响。
 
 ## 5. 每天复习
 
@@ -254,16 +255,14 @@ python -m deeptutor.review.mcp_server
 python -m deeptutor.review.mcp_server --transport streamable-http
 ```
 
-装完 wheel 后跑一次目录同步，否则客户端看不到 `review_plan`：
-
-```bash
-deeptutor-review-catalog
-```
+MCP 客户端直接连 stdio 或 Streamable HTTP 即可；`review_plan` 在 10 个工具里。
+商店补丁（`deeptutor-review-catalog`）已移到实验目录，不随公开包发布。
 
 ## 附录 D：相关文档
 
-- [维护备注](maintainer-notes.md)：架构不变量、发布步骤、已知限制
-- [PRD](PRD.md)：产品目标与功能边界
-- [decision-log](plan/decision-log.md)、[backlog](plan/backlog.md)
-- [部署 runbook](plan/deployment-runbook.md)
-- [历史证据](archive/2026-11/)：2026-11-07～11 的报告与测试指南
+- [维护备注](https://github.com/zkw90274-dot/deeptutor-review-mcp/blob/main/docs/maintainer-notes.md)：架构不变量、发布步骤、已知限制
+- [安装与使用](USAGE.md)：安装、配置、MCP 接入、备份与排查
+- [Agent skill](https://github.com/zkw90274-dot/deeptutor-review-mcp/blob/main/docs/skill/SKILL.md)：给 agent 的调用协议
+- [CHANGELOG](https://github.com/zkw90274-dot/deeptutor-review-mcp/blob/main/CHANGELOG.md)
+- [SECURITY](https://github.com/zkw90274-dot/deeptutor-review-mcp/blob/main/SECURITY.md)
+- 上游 issue：[HKUDS/DeepTutor#2766](https://github.com/HKUDS/DeepTutor/issues/2766)（1.7.3 thinking 模型生成问题）

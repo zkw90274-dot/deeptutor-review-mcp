@@ -1,7 +1,7 @@
 # 安装与使用（Review Studio）
 
 面向第一次安装的人。目标是三件事：装得上、起得来、接得进（Web + MCP）。
-每天怎么用见[操作手册](usage-guide.md)；工程细节见[维护备注](maintainer-notes.md)。
+每天怎么用见[操作手册](usage-guide.md)；工程细节见[维护备注](https://github.com/zkw90274-dot/deeptutor-review-mcp/blob/main/docs/maintainer-notes.md)。
 
 ## 0. 前置条件
 
@@ -130,7 +130,7 @@ python -m deeptutor.review.mcp_server --transport streamable-http
 | `review_generate` | 从知识库某一章生成新包（同章重复需 `replace=true`） |
 | `review_plan` | 多周计划：create/today/complete/replan/confirm_note/status/sync_calendar |
 
-工具行为与参数的完整说明见 [SKILL.md](skill/SKILL.md)。
+工具行为与参数的完整说明见 [SKILL.md](https://github.com/zkw90274-dot/deeptutor-review-mcp/blob/main/docs/skill/SKILL.md)。
 
 ## 5. 第一场复习
 
@@ -169,9 +169,10 @@ pip uninstall -y deeptutor-review
 |---|---|
 | `/api/review/ui` 404 | 版本不一致（review ≠ 核心），或模块未启用；核对两个版本号后重启 |
 | 页面能开但导出 404 | 导出文件在旧路径；重新导出，新页面内嵌 MathJax |
-| MCP 连上但看不到 `review_plan` | 没跑 `deeptutor-review-catalog` |
+| MCP 连上但看不到 `review_plan` | 核心与 review 版本不一致，或模块未启用；先跑 `--check` 并重启（商店补丁已移到实验目录，不随包发布） |
 | MCP 工具调用报 unknown spec | id 必须原样取自 `review_specs` |
 | 计划提示「排不下」 | 延长 `end_date` 或提高 `daily_minutes`（上限 240/天） |
 | 日历看不到学习任务 | 创建计划时核心服务未运行，`sync` 失败；重启后 `sync_calendar` |
 | 生成失败且提示门禁 | 答案键冲突/公式分隔符不配对/解析空洞；换更小 `num_questions` 重试 |
+| 生成失败：`The reasoning_content in the thinking mode must be passed back` | DeepTutor 1.7.3 的 thinking 模型（如 `deepseek-flash`）在 quiz pipeline 续轮丢 reasoning；改用 `deepseek-chat` 生成，或等上游 [HKUDS/DeepTutor#2766](https://github.com/HKUDS/DeepTutor/issues/2766) 修复 |
 | Windows 端口被占用 | 换 `--port`，或先 `deeptutor stop` 再启动 |
