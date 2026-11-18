@@ -68,7 +68,10 @@ def estimate_minutes(chars: int) -> int:
 def chapter_work(subject: str, chapters: list[str]) -> list[ChapterWork]:
     from deeptutor.review.generate import chapter_workloads, infer_chapters
 
-    available = infer_chapters(subject)
+    try:
+        available = infer_chapters(subject)
+    except (FileNotFoundError, ValueError) as exc:
+        raise PlanError(f"unknown or invalid knowledge base: {subject}") from exc
     known = {chapter.name for chapter in available}
     missing = [name for name in chapters if name not in known]
     if missing:

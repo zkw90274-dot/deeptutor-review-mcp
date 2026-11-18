@@ -16,6 +16,10 @@
       "class_path": "deeptutor.review.agent_tools:ReviewSpecsTool",
       "order": 60
     },
+    "review_due": {
+      "class_path": "deeptutor.review.agent_tools:ReviewDueTool",
+      "order": 103
+    },
     "review_today": {
       "class_path": "deeptutor.review.agent_tools:ReviewTodayTool",
       "order": 61

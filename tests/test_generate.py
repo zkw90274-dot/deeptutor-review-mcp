@@ -263,6 +263,30 @@ def _conversion_payload() -> dict[str, Any]:
     )
 
 
+def test_generate_normalises_math_placeholders_before_storage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_chapters(monkeypatch, CHAPTER)
+    _patch_generation(
+        monkeypatch,
+        _payload(
+            _qa(
+                question=r"双线性变换中 $$\Omega=____$$ 应填入什么？",
+                question_type="written",
+                correct_answer=r"$\Omega=\frac{2}{T}\tan(\omega/2)$",
+                explanation="",
+            )
+        ),
+    )
+
+    result = generate_spec_from_kb(kb_name=KB, chapter=CHAPTER, num_questions=1)
+
+    stem = result.spec.items[0].stem
+    assert "____" not in stem
+    assert r"\underline{\hspace{2em}}" in stem
+    assert result.spec.items[0].answer.text == r"$\Omega=\frac{2}{T}\tan(\omega/2)$"
+
+
 def test_generate_converts_choice_written_and_degrades_cleanly(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

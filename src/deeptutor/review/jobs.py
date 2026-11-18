@@ -46,8 +46,10 @@ JOB_STALE_SECONDS = 3600
 #: of the four-char form at one id per second were too close for comfort).
 _JOB_ID = re.compile(r"^gen-[0-9]+-[0-9a-f]{4,8}$")
 
-#: Failure messages are read by the model; keep them one paragraph long.
-_MAX_ERROR_CHARS = 300
+#: Failure messages are read by the model; keep them one paragraph long but
+#: leave room for the first gate details (the field path is what makes a QA
+#: rejection actionable).
+_MAX_ERROR_CHARS = 600
 
 #: Windows closes the replace/read race with a bounded retry: a concurrent
 #: reader keeps the target open without delete sharing, so ``os.replace``
@@ -564,7 +566,12 @@ def _reuse_legacy_spec_id(
 
 
 def _gate_summary(exc: Any) -> str:
-    """One-line summary of a QA-gate rejection for the model to act on."""
+    """One-line summary of a QA-gate rejection for the model to act on.
+
+    The gate name alone ("G10-math-balance") does not tell the caller which
+    field broke the rule. Append the first details, which carry the field path
+    (``items.[2].stem``), so the next generation can fix exactly that item.
+    """
     report = getattr(exc, "report", None)
     failed = [
         gate
@@ -575,7 +582,18 @@ def _gate_summary(exc: Any) -> str:
     for gate in failed:
         name = str(getattr(gate, "gate", "") or "gate")
         message = str(getattr(gate, "message", "") or "").strip()
-        parts.append(f"{name}: {message}" if message else name)
+        entry = f"{name}: {message}" if message else name
+        details = [
+            str(detail).strip()
+            for detail in (getattr(gate, "details", None) or [])
+            if str(detail).strip()
+        ]
+        if details:
+            shown = "; ".join(details[:3])
+            if len(details) > 3:
+                shown += f"; (+{len(details) - 3} more)"
+            entry += f" [{shown}]"
+        parts.append(entry)
     if not parts:
         return f"quality gates failed: {exc}"
     return "quality gates failed: " + "; ".join(parts)

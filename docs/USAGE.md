@@ -103,7 +103,7 @@ python -m deeptutor.review.mcp_server --transport streamable-http
 # 默认 127.0.0.1:8767/mcp；--host/--port/--path 可改
 ```
 
-需要鉴权时设 `DEEPTUTOR_REVIEW_MCP_TOKEN=<随机串>`，客户端用
+设 `DEEPTUTOR_REVIEW_MCP_TOKEN=<随机串>` 启用鉴权。空白 token 会阻止启动，只有回环地址允许未配置 token。客户端用
 `Authorization: Bearer <同值>`。安全边界由部署方负责（TLS、反代、来源限制）。
 
 ### 4.3 服务端下发什么
@@ -113,17 +113,18 @@ python -m deeptutor.review.mcp_server --transport streamable-http
 想补充本机目录或课程约定，写 `<review home>/mcp-context.md`，或让
 `DEEPTUTOR_REVIEW_MCP_CONTEXT` 指向一个文件；内容会追加在通用说明之后。
 
-### 4.4 十个工具
+### 4.4 十一个工具
 
 | 工具 | 用途 |
 |---|---|
 | `review_specs` | 列出复习包（id、题数、概念数、质量状态） |
+| `review_due` | 跨包查看今日待练题量，不开启会话 |
 | `review_today` | 今日队列；答案与解析刻意不下发 |
 | `review_attempt` | 记录三档自评（`again`/`hard`/`good`），幂等键 `submission_id` |
 | `review_hint` | 两级提示（L1 点名考点，L2 复述定义/公式），泄露检查失败则回落章节指引 |
 | `review_weakness` | 只读薄弱概念排序，不写库 |
 | `review_export_link` | 单文件离线 HTML 链接 |
-| `review_export_tree` | 按科目分类导出整批包：`<out>/<科目>/<章>.html` + `index.html`，每次整树重建 |
+| `review_export_tree` | 按科目导出复习包和 `index.html`。遇同名旧版或个人 HTML 时保留原文件，请换新目录。 |
 | `review_book_figures` | 活书插图索引：哪一节有哪几张图（按科目 / 计划章过滤），只读 |
 | `review_generate` | 从知识库某一章生成新包（同章重复需 `replace=true`） |
 | `review_plan` | 多周计划：create/today/complete/replan/confirm_note/status/sync_calendar |

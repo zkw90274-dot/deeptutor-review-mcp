@@ -20,6 +20,7 @@ import re
 from typing import Any, Callable
 
 from deeptutor.review.models import normalize_text
+from deeptutor.review.qa import unbalanced_math_delimiters
 
 Complete = Callable[[str, str], str]
 Clean = Callable[[str], str]
@@ -92,9 +93,9 @@ def _answer_brief(item: Any) -> str:
 
 def _clip(text: str, limit: int) -> str:
     text = " ".join(text.split())
-    if len(text) <= limit:
-        return text
-    return text[: limit - 1].rstrip() + "…"
+    if len(text) > limit:
+        text = text[: limit - 1].rstrip() + "…"
+    return "" if unbalanced_math_delimiters(text) else text
 
 
 def build_prompt(chapter: str, concepts: list[Any], items_by_concept: dict[str, list[Any]]) -> str:

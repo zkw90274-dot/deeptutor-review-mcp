@@ -62,6 +62,61 @@ def _run(scenario):
     return asyncio.run(scenario())
 
 
+def test_each_listed_tool_carries_annotations() -> None:
+    """Every tool advertises read/write risk; clients gate on these hints.
+
+    The mapping is deliberately not derived from the tool names: ``review_today``
+    is a write (session + views), ``review_attempt`` is only idempotent when the
+    caller supplies ``submission_id``, and ``review_generate`` can overwrite an
+    existing pack. Pin all three so a future "cleanup" cannot quietly re-label
+    them.
+    """
+    from deeptutor.review.mcp_server import TOOL_ANNOTATIONS
+
+    assert set(TOOL_ANNOTATIONS) == set(TOOL_CLASSES)
+
+    async def scenario():
+        async with create_connected_server_and_client_session(build_server()) as session:
+            return (await session.list_tools()).tools
+
+    tools = _run(scenario)
+    assert [tool.name for tool in tools] == list(REVIEW_AGENT_TOOL_NAMES)
+    for listed in tools:
+        assert listed.annotations is not None, listed.name
+        expected = TOOL_ANNOTATIONS[listed.name]
+        for key, value in expected.items():
+            assert getattr(listed.annotations, key) is value, (listed.name, key)
+
+    read_only = {
+        tool.name for tool in tools if tool.annotations.readOnlyHint
+    }
+    assert read_only == {
+        "review_specs",
+        "review_due",
+        "review_weakness",
+        "review_export_link",
+        "review_book_figures",
+        "review_hint",
+    }
+    today = next(tool for tool in tools if tool.name == "review_today")
+    assert today.annotations.readOnlyHint is False
+    tree = next(tool for tool in tools if tool.name == "review_export_tree")
+    assert tree.annotations.destructiveHint is True
+    # Byte-stable for the same store state; the cleanup side effect is already
+    # covered by destructiveHint.
+    assert tree.annotations.idempotentHint is True
+
+    attempt = next(tool for tool in tools if tool.name == "review_attempt")
+    # Without submission_id every call appends an event, so a client must not
+    # auto-retry it as if it were idempotent.
+    assert attempt.annotations.idempotentHint is False
+
+    generate = next(tool for tool in tools if tool.name == "review_generate")
+    # replace=True overwrites the pack and rewrites history protection.
+    assert generate.annotations.destructiveHint is True
+    assert generate.annotations.openWorldHint is True
+
+
 def test_listed_tools_are_generated_from_agent_definitions() -> None:
     """Name, description and every schema field come from ``get_definition``."""
     assert tuple(TOOL_CLASSES) == REVIEW_AGENT_TOOL_NAMES
@@ -134,6 +189,9 @@ def test_each_tool_call_returns_json(review_home) -> None:
             weakness = _payload(
                 await session.call_tool("review_weakness", {"spec_id": SPEC_ID})
             )
+            due = _payload(await session.call_tool("review_due", {}))
+            assert due["count"] == 1
+            assert due["packs"][0]["spec_id"] == SPEC_ID
             export = _payload(
                 await session.call_tool("review_export_link", {"spec_id": SPEC_ID})
             )
@@ -149,6 +207,7 @@ def test_each_tool_call_returns_json(review_home) -> None:
             assert plan["plans"] == []
             return {
                 "review_specs": specs,
+                "review_due": due,
                 "review_today": today,
                 "review_attempt": attempt,
                 "review_weakness": weakness,

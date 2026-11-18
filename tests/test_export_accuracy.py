@@ -31,7 +31,7 @@ from fastapi.testclient import TestClient
 from deeptutor.review import api as review_api
 from deeptutor.review import service as service_module
 from deeptutor.review.adapter import initial_state
-from deeptutor.review.export import build_html
+from deeptutor.review.export import build_html, normalize_prose_math
 from deeptutor.review.fixture import SPEC_ID, build_fixture_spec
 from deeptutor.review.models import QualityReport, ReviewSpec
 from deeptutor.review.service import AttemptInput, ReviewService
@@ -126,7 +126,12 @@ def test_export_payload_matches_stored_items_byte_for_byte(
         assert got["options"] == [
             {"label": option.label, "text": option.text} for option in item.options
         ]
-        assert got["answer_display"] == _expected_answer_display(item)
+        # The export wraps a bare-TeX answer in $...$ at render time; that is
+        # the one documented exception to verbatim transport (storage is
+        # untouched). Stems, options and explanations stay byte-for-byte.
+        assert got["answer_display"] == normalize_prose_math(
+            _expected_answer_display(item), pure_math_only=True
+        )
         assert got["answer_index"] == item.answer.choice_index
         assert got["explanation"] == item.explanation
         assert got["kind"] == item.kind

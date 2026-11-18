@@ -33,6 +33,29 @@ def test_fixture_passes_all_gates(fixture_spec: ReviewSpec) -> None:
     }
 
 
+def test_math_balance_ignores_escaped_dollars(fixture_spec: ReviewSpec) -> None:
+    payload = fixture_spec.model_dump(mode="json")
+    payload["content_hash"] = ""
+    payload["items"][0]["stem"] += r" 成本 \$5。"
+    spec = ReviewSpec.model_validate(payload)
+    gate = next(
+        gate for gate in run_gates(spec).gates if gate.gate == "G10-math-balance"
+    )
+    assert gate.passed, gate.details
+
+
+def test_math_balance_still_rejects_an_unpaired_dollar(fixture_spec: ReviewSpec) -> None:
+    payload = fixture_spec.model_dump(mode="json")
+    payload["content_hash"] = ""
+    payload["items"][0]["stem"] += " $x+y"
+    spec = ReviewSpec.model_validate(payload)
+    gate = next(
+        gate for gate in run_gates(spec).gates if gate.gate == "G10-math-balance"
+    )
+    assert gate.passed is False
+    assert any("items.[0].stem" in detail for detail in gate.details)
+
+
 def test_extra_field_is_rejected(fixture_spec: ReviewSpec) -> None:
     payload = fixture_spec.model_dump(mode="json")
     payload["concepts"][0]["unexpected"] = True

@@ -7,6 +7,7 @@ import asyncio
 import json
 import os
 import sqlite3
+from contextlib import closing
 
 import pytest
 
@@ -14,6 +15,7 @@ from deeptutor.review import capabilities
 from deeptutor.review.agent_tools import (
     ReviewAttemptTool,
     ReviewGenerateTool,
+    ReviewSpecsTool,
     _resolve_export_dir,
 )
 from deeptutor.review.fixture import build_fixture_spec
@@ -21,6 +23,8 @@ from deeptutor.review.mcp_server import (
     AUTH_TOKEN_ENV,
     _configure_capabilities,
     _is_loopback,
+    build_server,
+    create_http_app,
     main,
 )
 from deeptutor.review.service import ReviewService
@@ -115,6 +119,24 @@ def test_public_http_without_token_refuses_to_start(monkeypatch, capsys) -> None
     assert "refusing to serve" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("token", ["", "   "])
+def test_blank_http_token_refuses_to_start_on_loopback(token, monkeypatch, capsys) -> None:
+    import uvicorn
+
+    monkeypatch.setenv(AUTH_TOKEN_ENV, token)
+    monkeypatch.setattr(uvicorn, "run", lambda *args, **kwargs: pytest.fail("HTTP must not start"))
+    assert main(["--transport", "streamable-http"]) == 2
+    assert AUTH_TOKEN_ENV in capsys.readouterr().err
+    with pytest.raises(ValueError, match=AUTH_TOKEN_ENV):
+        create_http_app(build_server())
+
+
+def test_http_auth_parameter_takes_precedence_over_environment(monkeypatch) -> None:
+    monkeypatch.setenv(AUTH_TOKEN_ENV, "test-token")
+    with pytest.raises(ValueError, match=AUTH_TOKEN_ENV):
+        create_http_app(build_server(), auth_token=" ")
+
+
 def test_read_only_today_does_not_create_a_session_or_views(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("DEEPTUTOR_REVIEW_HOME", str(tmp_path))
     service = ReviewService()
@@ -135,6 +157,40 @@ def test_read_only_today_does_not_create_a_session_or_views(monkeypatch, tmp_pat
     sessions, views = counts()
     assert sessions == 1
     assert views > 0
+
+
+def test_read_only_catalog_never_initializes_a_missing_home(monkeypatch, tmp_path) -> None:
+    missing = tmp_path / "missing"
+    monkeypatch.setenv("DEEPTUTOR_REVIEW_HOME", str(missing))
+    monkeypatch.setenv(capabilities.READ_ONLY, "1")
+    result = asyncio.run(ReviewSpecsTool().execute())
+    assert json.loads(result.content).get("error")
+    assert not missing.exists()
+
+
+def test_read_only_catalog_never_migrates_an_existing_store(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("DEEPTUTOR_REVIEW_HOME", str(tmp_path))
+    store = ReviewService().store
+    with closing(sqlite3.connect(store.db_path)) as conn, conn:
+        conn.execute("ALTER TABLE review_events DROP COLUMN learner_quote")
+        conn.execute("UPDATE review_schema_migrations SET version = 4")
+    monkeypatch.setenv(capabilities.READ_ONLY, "1")
+    result = asyncio.run(ReviewSpecsTool().execute())
+    assert "needs a schema migration" in json.loads(result.content)["error"]
+    with closing(sqlite3.connect(store.db_path)) as conn:
+        assert conn.execute("SELECT MAX(version) FROM review_schema_migrations").fetchone() == (4,)
+
+
+def test_rest_preview_and_explicit_session_start(client, service) -> None:
+    spec_id = service.put_spec(build_fixture_spec())["spec_id"]
+    route = f"/api/review/{spec_id}/today"
+    response = client.get(route, params={"read_only": "true"})
+    assert response.status_code == 200
+    assert response.json()["session_id"] == ""
+    started = client.post(route)
+    assert started.status_code == 200
+    assert started.json()["session_id"]
+    assert client.post(route).json()["session_id"] == started.json()["session_id"]
 
 
 def test_export_dir_must_stay_under_review_home(monkeypatch, tmp_path) -> None:

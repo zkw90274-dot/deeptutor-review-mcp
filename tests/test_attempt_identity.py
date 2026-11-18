@@ -164,3 +164,38 @@ def test_zero_confidence_is_a_real_value_not_a_default(service: ReviewService) -
                 confidence=None,
             ),
         )
+
+
+def test_without_submission_id_each_call_appends_a_new_event(
+    service: ReviewService,
+) -> None:
+    """The reason ``review_attempt.idempotentHint`` is False.
+
+    Idempotency is conditional on the caller supplying ``submission_id``. A
+    client that auto-retries on timeout without one records the learner's
+    answer twice and pushes the next review date twice — the exact scenario the
+    MCP annotation must not invite.
+    """
+    service.put_spec(build_fixture_spec())
+    before = service.store.event_count(SPEC_ID)
+    service.attempt(SPEC_ID, AttemptInput(item_id=ITEM_ID, rating="good"))
+    service.attempt(SPEC_ID, AttemptInput(item_id=ITEM_ID, rating="good"))
+    assert service.store.event_count(SPEC_ID) - before == 2
+
+
+def test_with_submission_id_the_retry_is_one_event(service: ReviewService) -> None:
+    """The other half of the contract: the documented retry path is idempotent."""
+    service.put_spec(build_fixture_spec())
+    before = service.store.event_count(SPEC_ID)
+    first = service.attempt(
+        SPEC_ID,
+        AttemptInput(item_id=ITEM_ID, rating="good", submission_id="retry-once"),
+    )
+    second = service.attempt(
+        SPEC_ID,
+        AttemptInput(item_id=ITEM_ID, rating="good", submission_id="retry-once"),
+    )
+    assert first["created"] is True
+    assert second["created"] is False
+    assert second["event_id"] == first["event_id"]
+    assert service.store.event_count(SPEC_ID) - before == 1

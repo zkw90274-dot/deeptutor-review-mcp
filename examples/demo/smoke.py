@@ -18,6 +18,7 @@ from pathlib import Path
 
 EXPECTED_TOOLS = (
     "review_specs",
+    "review_due",
     "review_today",
     "review_attempt",
     "review_weakness",
@@ -68,6 +69,12 @@ async def _run(home: Path, spec_id: str) -> None:
             print("packs    :", [pack.get("id") for pack in packs])
             if not any(pack.get("id") == spec_id for pack in packs):
                 raise SystemExit(f"seeded pack {spec_id!r} missing from review_specs")
+
+            due = await session.call_tool("review_due", {})
+            overview = json.loads(due.content[0].text)
+            print("due      :", overview.get("count"), "packs,", overview.get("totals", {}).get("queued"), "queued items")
+            if not any(entry.get("spec_id") == spec_id for entry in overview.get("packs") or []):
+                raise SystemExit(f"seeded pack {spec_id!r} missing from review_due")
 
             today = await session.call_tool("review_today", {"spec_id": spec_id})
             queue = json.loads(today.content[0].text)

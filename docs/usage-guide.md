@@ -144,11 +144,12 @@ deptutor stop
 
 **边界**：只识别整天拖动；单任务拖动、跨天拆分、拖到过去都不回写；目标日已有任务时**拒绝合并**，避免两天工作量叠一起。
 
-## 7. 十个工具速查
+## 7. 十一个工具速查
 
 | 工具 | 什么时候用 | 关键参数 |
 |---|---|---|
 | `review_specs` | 看有哪些复习包 | — |
+| `review_due` | 跨包看今日待练题量，保留会话状态 | 可选 `subject` |
 | `review_today` | 今天该复习什么 | `spec_id` |
 | `review_attempt` | 记录自评 | `spec_id, item_id, rating, session_id` |
 | `review_hint` | 卡住了要提示 | `spec_id, item_id, level(1 概念方向 / 2 定义公式)` |
@@ -255,7 +256,7 @@ python -m deeptutor.review.mcp_server
 python -m deeptutor.review.mcp_server --transport streamable-http
 ```
 
-MCP 客户端直接连 stdio 或 Streamable HTTP 即可；`review_plan` 在 10 个工具里。
+MCP 客户端可以连接 stdio 或 Streamable HTTP。11 个工具包含 `review_plan` 和跨包只读汇总 `review_due`。
 商店补丁（`deeptutor-review-catalog`）已移到实验目录，不随公开包发布。
 
 ## 附录 D：相关文档

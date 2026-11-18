@@ -29,11 +29,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from deeptutor.review.projection import project_attempt
 from deeptutor.review.service import (
     MAX_ELAPSED_MS,
+    MAX_LEARNER_QUOTE_CHARS,
     AttemptInput,
     QualityGateFailed,
     ReviewService,
 )
 from deeptutor.review.storage import (
+    ReviewStore,
     ReviewStoreError,
     ReviewStoreIOError,
     SessionConflict,
@@ -213,6 +215,10 @@ class AttemptBody(BaseModel):
     submission_id: str = ""
     answer: Any = None
     elapsed_ms: int = Field(default=0, ge=0, le=MAX_ELAPSED_MS)
+    #: The learner's own words behind the rating. Stored with the event so the
+    #: "the learner rated it, not the model" rule is auditable; never used by
+    #: the scheduler and never part of the submission identity.
+    learner_quote: str | None = Field(default=None, max_length=MAX_LEARNER_QUOTE_CHARS)
 
     @field_validator("elapsed_ms", mode="before")
     @classmethod
@@ -532,8 +538,22 @@ def get_spec(spec_id: str) -> dict[str, Any]:
         raise _handle(exc) from exc
 
 
-@router.get("/{spec_id}/today")
+@router.get("/{spec_id}/today", deprecated=True)
 def today(
+    spec_id: str,
+    session_id: str | None = Query(default=None),
+    read_only: bool = Query(default=False, description="Preview without opening a session or recording views."),
+) -> dict[str, Any]:
+    if not read_only:
+        return start_today(spec_id, session_id)
+    try:
+        return ReviewService(ReviewStore(read_only=True)).today(spec_id, read_only=True)
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
+@router.post("/{spec_id}/today")
+def start_today(
     spec_id: str,
     session_id: str | None = Query(default=None),
 ) -> dict[str, Any]:
@@ -562,7 +582,7 @@ def session_plan(
     minutes: int | None = Query(default=None, ge=1, le=60),
 ) -> dict[str, Any]:
     try:
-        return _service().session_plan(
+        return ReviewService(ReviewStore(read_only=True)).session_plan(
             spec_id, mode=mode, limit=limit, minutes=minutes
         )
     except Exception as exc:  # noqa: BLE001
@@ -637,6 +657,7 @@ async def attempt(spec_id: str, body: AttemptBody) -> dict[str, Any]:
             submission_id=body.submission_id,
             answer=body.answer,
             elapsed_ms=body.elapsed_ms,
+            learner_quote=body.learner_quote,
         ),
         answer=body.answer,
     )

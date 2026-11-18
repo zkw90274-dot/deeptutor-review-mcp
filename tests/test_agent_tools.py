@@ -26,6 +26,7 @@ from deeptutor.review.agent_tools import (
     REVIEW_AGENT_TOOL_NAMES,
     ReviewAttemptTool,
     ReviewBookFiguresTool,
+    ReviewDueTool,
     ReviewExportLinkTool,
     ReviewGenerateTool,
     ReviewPlanTool,
@@ -38,6 +39,7 @@ from deeptutor.review.service import ReviewService
 
 TOOLS: dict[str, type[BaseTool]] = {
     "review_specs": ReviewSpecsTool,
+    "review_due": ReviewDueTool,
     "review_today": ReviewTodayTool,
     "review_attempt": ReviewAttemptTool,
     "review_weakness": ReviewWeaknessTool,
@@ -74,6 +76,7 @@ def seeded(service: ReviewService) -> ReviewService:
 def test_all_tools_are_base_tools_with_frozen_names() -> None:
     assert REVIEW_AGENT_TOOL_NAMES == (
         "review_specs",
+        "review_due",
         "review_today",
         "review_attempt",
         "review_weakness",
@@ -110,6 +113,7 @@ def test_spec_id_parameter_is_required_on_the_four_addressed_tools() -> None:
         "submission_id",
         "hints_used",
         "confidence",
+        "learner_quote",
     }
     assert by_name["rating"].enum == ["again", "hard", "good"]
     assert by_name["submission_id"].required is False

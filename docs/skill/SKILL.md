@@ -12,7 +12,7 @@ tags: [education, review, spaced-repetition]
 # Review Studio
 
 Review Studio schedules the learner's review with a spaced-repetition
-scheduler. These ten tools read and write the same store as the Review Studio
+scheduler. These eleven tools read and write the same store as the Review Studio
 overview page and the offline export, so a rating recorded here is the
 learner's real review history. `review_generate` is the one tool that creates a
 pack instead of consuming one.
@@ -36,12 +36,13 @@ pack instead of consuming one.
 | Tool | Use it for | Parameters |
 |---|---|---|
 | `review_specs` | List the review packs available to this learner, with each pack's id, item and concept counts, and generation quality status. | None. |
+| `review_due` | Summarise what is queued today across every pack, read-only: per pack the queued/due/new counts, estimated minutes, recovery flag and last review time. Use it to answer "what should I review today?" or to pick a pack; it opens no session and records nothing, unlike `review_today`. It returns no question text. | optional `subject` (substring of the pack title). |
 | `review_today` | Return today's queue for one pack: the budget, planned minutes, and each due item's kind, stem and options, with answers and explanations deliberately withheld. When the pack has an exam date, the payload carries an `exam` block (`days_left`, `mode`: sprint within 14 days, final_week within 3) you can mention to the learner. | `spec_id` (verbatim from `review_specs`). |
 | `review_attempt` | Record the learner's own self-assessment of one item and let the scheduler set its next review date. A `good` reported after any hint is stored as `hard`. | `spec_id`, `item_id` (both verbatim from `review_today`), `rating` (`again`, `hard`, or `good`), optional `session_id` (pass back the value from `review_today`), optional `submission_id` (idempotency key for retrying the same rating), optional `hints_used` (0-2, the number of hints you actually showed), optional `confidence` (0-100, only when the learner volunteers it, never invented). |
 | `review_hint` | Give the learner a graded hint for one item without revealing the answer: level 1 names the tested concept, level 2 restates its definition (and formula when the pack has one); when the pack has no definition, level 2 points at the definition to recall and the source material instead of repeating level 1. The text is derived deterministically from the pack and leak-checked against the answer and every option; if that check fails it falls back to source-chapter guidance. | `spec_id`, `item_id` (both verbatim from `review_today`), optional `level` (`1` or `2`, default `1`; offer 1 first). |
 | `review_weakness` | Show the pack's weakest concepts with their weakness score and evidence count, read-only. | `spec_id` (verbatim from `review_specs`). |
-| `review_export_link` | Give the learner the URL of the offline review page for one pack. The payload carries `url` (relative) and, when the deployment configures a public base URL, `absolute_url`; give `absolute_url` when present. | `spec_id` (verbatim from `review_specs`). |
-| `review_export_tree` | Export every pack into a subject-classified folder tree: one HTML per pack at `<out_dir>/<subject>/<chapter>.html` plus `<out_dir>/index.html`, rebuilt from the store on every call (a renamed chapter leaves no stale page). Subject and chapter come from the pack title `"<subject> · <chapter> 复习包"`, so no naming is invented. Packs failing the QA gate are skipped and reported. Use it when the learner wants the whole library on disk in a browsable layout, not a single page. | `out_dir` (optional; defaults to `<review home>/exports`), `subjects` (optional array of subject names; omit for every subject in the store). |
+| `review_export_link` | Give the learner the URL of the printable review page for one pack. The URL is served by the DeepTutor web app, so it needs that app running and the learner signed in; in a standalone MCP deployment offer `review_export_tree` instead. The payload carries `url` (relative) and, when the deployment configures a public base URL, `absolute_url`; give `absolute_url` when present. | `spec_id` (verbatim from `review_specs`). |
+| `review_export_tree` | Export packs as `<out_dir>/<subject>/<chapter>.html` and `<out_dir>/index.html`. A rebuild can replace or remove pages tracked by a valid export checksum. If an existing personal or legacy page conflicts, preserve it and choose a fresh export destination. Packs failing the QA gate are skipped and reported. | `out_dir` (optional, defaults to `<review home>/exports`), `subjects` (optional array of subject names, omit for every subject in the store). |
 | `review_book_figures` | List the diagrams the living books print, section by section: each entry carries the section number, title, book anchor and figure caption, optionally filtered to one subject or one planned chapter. Figures are inline SVG inside the built book, so this is how a reading pointer can name the diagram (图 2-1) instead of sending the learner into text only. Read-only. | `subject` (optional), `chapter` (optional, a planned chapter name). |
 | `review_plan` | Plan and run a multi-week study course for one subject. `create` takes the knowledge base, the chapter list, an end date and a daily budget, spreads the reading across days, and refuses a schedule that does not fit; each planned day is mirrored onto the workbench calendar and task board (best-effort). `today` returns today's study tasks, the due-review count across the subject's packs, and overdue sessions; `complete` marks one session done and drafts the chapter note once the chapter is finished; `confirm_note` writes that draft into the Co-Writer notebook; `replan` rebuilds the remaining schedule from today; `sync_calendar` pulls whole-day calendar drags back into the plan; `status` lists plans and progress. | `action` (`create`/`today`/`complete`/`replan`/`confirm_note`/`status`/`sync_calendar`), `subject` (KB name), `chapters` (verbatim from `review_generate`'s chapter list), `start_date`, `end_date`, `daily_minutes` (15-240, default 60), `weekly_budget` (for `replan`: seven comma-separated minutes, Monday..Sunday, `0` = day off, e.g. `90,120,90,120,90,120,360`; the end date is derived from the remaining work), `plan_id`, `date`, `seq`, `self_note`, `note_id` — only the ones the action needs. |
 | `review_generate` | Generate a new pack from one knowledge-base chapter or lecture group. Three modes: call with `kb` only to list the chapter/lecture groups first, with `kb` + `chapter` to start a background generation job, or with `kb` + `job_id` to poll that job. Once a job is started, every call returns in seconds — the generation itself runs in the background and takes minutes. | `kb` (knowledge base name), `chapter` (verbatim from the chapter list; mutually exclusive with `job_id`), `job_id` (from the start call, to poll its status), optional `num_questions` (default 12, clamped to 5-20), optional `question_types` (`choice` and/or `written`, default both), optional `difficulty`. |
@@ -82,22 +83,26 @@ When the learner asks for review material that does not exist yet:
 
 1. Call `review_specs` first. Every other tool needs a `spec_id`, and only the
    ids returned here exist.
-2. If more than one pack fits, ask the learner which one; do not pick for them.
-3. Call `review_today` with that `spec_id`.
-4. Read **one** item's stem to the learner exactly as given, including its
+2. If the learner asks "what should I review today?" without naming a pack, call
+   `review_due` instead of `review_today` for each pack: it is read-only and
+   returns the queued counts across the library.
+3. If more than one pack fits, ask the learner which one; do not pick for them.
+4. Call `review_today` with that `spec_id`.
+5. Read **one** item's stem to the learner exactly as given, including its
    options when present. Do not guess or reveal the answer, and do not
    improvise a hint: the tool does not give you the answer, and hints go
    through `review_hint` (below).
-5. **Stop and wait.** The learner answers, then says in their own words how it
+6. **Stop and wait.** The learner answers, then says in their own words how it
    went (easily, with effort, or not at all). If they say they are stuck, go to
    "Helping a stuck learner" below instead of revealing the answer.
-6. Call `review_attempt` with that item's `item_id`, the rating they gave
+7. Call `review_attempt` with that item's `item_id`, the rating they gave
    transcribed as `good`, `hard`, or `again`, and the `session_id` from
    `review_today` passed back verbatim. Then tell them the correct answer and
    explanation from the result and when the card returns.
-7. Continue with the next item from the same `review_today` list. When the
+8. Continue with the next item from the same `review_today` list. When the
    learner asks what to focus on, call `review_weakness`; when they want to
-   study offline or print, call `review_export_link`; when they want the whole library as classified folders, call `review_export_tree`.
+   print or open a page, call `review_export_link` (needs the DeepTutor web app);
+   when they want the whole library as classified offline folders, call `review_export_tree`.
 
 ## Helping a stuck learner
 
@@ -204,7 +209,8 @@ When the learner asks for review material that does not exist yet:
 
 - Overview page: `GET /api/review/ui` lists the packs and their export links.
 - Offline review page: `/api/review/{spec_id}/export` is the URL returned by
-  `review_export_link`.
+  `review_export_link`. It is a DeepTutor web-app route (login required); in a
+  standalone MCP deployment use `review_export_tree` for an offline copy.
 - Classified export tree: `review_export_tree` writes `<out_dir>/<subject>/<chapter>.html`
   plus `<out_dir>/index.html`; tell the learner to open the index, not the folder listing.
 - Book diagrams: the living books draw their figures as inline SVG inside the

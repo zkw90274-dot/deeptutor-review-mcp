@@ -1175,6 +1175,27 @@ def generate_spec_from_kb(
         # valid one; an empty value keeps the item's content hash unchanged.
         item.study_table = compare_markdown(note.get("compare"))
 
+    # ``____`` inside math is invalid TeX for MathJax and would only fail at
+    # export time. Normalise the same fields the exporter normalises, before
+    # the pack is stored, so a newly generated pack is render-safe from day
+    # one instead of needing the export-side fallback.
+    from deeptutor.review.export import normalize_math_placeholders
+
+    for item in items:
+        item.stem = normalize_math_placeholders(item.stem)
+        item.explanation = normalize_math_placeholders(item.explanation)
+        item.answer.text = normalize_math_placeholders(item.answer.text)
+    for concept in concept_list:
+        for formula in concept.formulas:
+            formula.latex = normalize_math_placeholders(formula.latex)
+            formula.conditions = normalize_math_placeholders(formula.conditions)
+            formula.variables = {
+                normalize_math_placeholders(name): normalize_math_placeholders(
+                    description
+                )
+                for name, description in formula.variables.items()
+            }
+
     summary = (
         f"本章共 {len(items)} 道复习题，覆盖 {len(concept_list)} 个知识点。"
     )

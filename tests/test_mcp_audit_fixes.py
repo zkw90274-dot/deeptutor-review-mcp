@@ -44,10 +44,12 @@ def test_explicit_http_deployment_authorities_work() -> None:
     app = create_http_app(
         build_server(), host="0.0.0.0", port=8877,
         allowed_hosts=["review.example.com"], allowed_origins=["https://study.example.com"],
+        auth_token="test-token",
     )
     with TestClient(app) as client:
         response = client.post("/mcp", json=INITIALIZE, headers={
             **HEADERS, "Host": "review.example.com", "Origin": "https://study.example.com",
+            "Authorization": "Bearer test-token",
         })
     assert response.status_code == 200
 

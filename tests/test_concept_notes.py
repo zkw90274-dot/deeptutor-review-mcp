@@ -362,6 +362,9 @@ def test_malformed_comparison_tables_are_dropped() -> None:
         {"columns": ["A", "B"], "rows": [["x", "y"], ["z"]]},
         {"columns": ["A", "B", "C", "D", "E"], "rows": [["1", "2", "3", "4", "5"]]},
         {"columns": ["A", "B"], "rows": []},
+        {"columns": ["A", "B"], "rows": [["$" + "x" * 45 + "$", "y"]]},
+        {"columns": ["A", "B"], "rows": [[r"\(x", "y"]]},
+        {"columns": ["A", "B"], "rows": [["$x", "y$"]]},
     ):
         extras: dict = {}
         reply = json.dumps(

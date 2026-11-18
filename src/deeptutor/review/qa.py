@@ -131,6 +131,18 @@ def _gate_math(spec: ReviewSpec) -> GateResult:
     )
 
 
+def unbalanced_math_delimiters(text: str) -> list[str]:
+    body = _strip_fenced_code(text).replace("\\$", "")
+    problems = []
+    if body.count("$") % 2:
+        problems.append("$")
+    if body.count("\\(") != body.count("\\)"):
+        problems.append("\\( \\)")
+    if body.count("\\[") != body.count("\\]"):
+        problems.append("\\[ \\]")
+    return problems
+
+
 def _gate_math_balance(spec: ReviewSpec) -> GateResult:
     """Every math delimiter must close.
 
@@ -142,13 +154,8 @@ def _gate_math_balance(spec: ReviewSpec) -> GateResult:
     details: list[str] = []
     dumped = spec.model_dump(mode="json", exclude={"quality"})
     for path, text in _strings(dumped):
-        body = _strip_fenced_code(text)
-        if body.count("$") % 2:
-            details.append(f"{path}: unbalanced $ delimiters")
-        if body.count("\\(") != body.count("\\)"):
-            details.append(f"{path}: unbalanced \\( \\) delimiters")
-        if body.count("\\[") != body.count("\\]"):
-            details.append(f"{path}: unbalanced \\[ \\] delimiters")
+        for delimiters in unbalanced_math_delimiters(text):
+            details.append(f"{path}: unbalanced {delimiters} delimiters")
     unique = list(dict.fromkeys(details))
     return GateResult(
         gate="G10-math-balance",
@@ -556,6 +563,33 @@ _GATES = (
 )
 
 
+def _bare_tex_warnings(spec: ReviewSpec) -> list[str]:
+    """Point at fields that would render bare TeX without the export fallback.
+
+    Warning only: the exporter wraps these fields at render time, so the pack
+    is still readable. The warning tells the generator that the model omitted
+    ``$...$``, which is the part the exporter cannot fix semantically.
+    """
+    from deeptutor.review.export import normalize_prose_math
+
+    warnings: list[str] = []
+    for item in spec.items:
+        if normalize_prose_math(item.answer.text, pure_math_only=True) != item.answer.text:
+            warnings.append(
+                f"G11-bare-tex: item {item.id} answer.text has bare TeX; "
+                "wrap the formula in $...$"
+            )
+    for concept in spec.concepts:
+        for formula in concept.formulas:
+            for name in formula.variables:
+                if normalize_prose_math(name) != name:
+                    warnings.append(
+                        f"G11-bare-tex: concept {concept.id} variable "
+                        f"{name!r} has bare TeX; wrap the formula in $...$"
+                    )
+    return warnings[:20]
+
+
 def run_gates(spec: ReviewSpec) -> QualityReport:
     gates = [gate(spec) for gate in _GATES]
     warnings = list(spec.quality.warnings)
@@ -566,10 +600,15 @@ def run_gates(spec: ReviewSpec) -> QualityReport:
         if len(item.concept_ids) > 1
     ]
     warnings.extend(multi_concept[:20])
+    warnings.extend(_bare_tex_warnings(spec))
     for gate in gates:
         if gate.passed:
             continue
         warnings.append(f"{gate.gate}: {gate.message}")
+    # ``run_gates`` is re-run on stored specs that already carry a quality
+    # report; without deduplication every advisory warning would be appended
+    # again and "the stored report equals a fresh run" would stop holding.
+    warnings = list(dict.fromkeys(warnings))
     return QualityReport(
         passed=all(gate.passed for gate in gates),
         warnings=warnings,

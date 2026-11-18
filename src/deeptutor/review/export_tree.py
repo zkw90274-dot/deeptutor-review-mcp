@@ -21,7 +21,11 @@ subject filter.
 from __future__ import annotations
 
 import html
+import hashlib
+import os
 import re
+import stat
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Sequence
@@ -41,6 +45,72 @@ DEFAULT_FOLDER = "exports"
 UNNAMED = "未命名"
 
 _UNSAFE_NAME = re.compile(r'[\\/:*?"<>|]+')
+
+#: Split a chapter name into digit and non-digit runs for natural ordering.
+_NATURAL_TOKEN = re.compile(r"(\d+)")
+_EXPORT_MARK = b"\n<!-- deeptutor-review-export-v1:"
+_EXPORT_END = b" -->\n"
+
+
+class ExportConflict(ValueError):
+    pass
+
+
+def _is_link(path: Path) -> bool:
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return False
+    return stat.S_ISLNK(info.st_mode) or bool(
+        getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT
+    )
+
+
+def _is_managed(path: Path) -> bool:
+    if _is_link(path) or not path.is_file():
+        return False
+    content, marker, digest = path.read_bytes().rpartition(_EXPORT_MARK)
+    return bool(marker) and digest == hashlib.sha256(content).hexdigest().encode() + _EXPORT_END
+
+
+def _check_target(out: Path, path: Path) -> None:
+    folder = path.parent
+    if (
+        _is_link(folder)
+        or (folder.exists() and not folder.is_dir())
+        or _is_link(path)
+        or (path.exists() and not _is_managed(path))
+    ):
+        raise ExportConflict(f"export destination already contains {path.relative_to(out).as_posix()}")
+
+
+def _write_page(path: Path, data: bytes) -> None:
+    marked = data + _EXPORT_MARK + hashlib.sha256(data).hexdigest().encode() + _EXPORT_END
+    if not path.exists():
+        with path.open("xb") as handle:
+            handle.write(marked)
+        return
+    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as handle:
+        temp = Path(handle.name)
+        try:
+            handle.write(marked)
+            handle.close()
+            os.replace(temp, path)
+        finally:
+            temp.unlink(missing_ok=True)
+
+
+def _natural_key(value: str) -> list[tuple[int, object]]:
+    """Sort ``第1章`` before ``第2章`` before ``第10章``.
+
+    A plain string sort puts ``第10章`` between ``第1章`` and ``第2章``. Each
+    token is tagged so a digit run and a text run never compare directly
+    (``TypeError: '<' not supported between instances of 'int' and 'str'``).
+    """
+    return [
+        (0, int(part)) if part.isdigit() else (1, part.casefold())
+        for part in _NATURAL_TOKEN.split(value)
+    ]
 
 
 def split_pack_title(title: str) -> tuple[str, str]:
@@ -96,8 +166,20 @@ def _group(entries: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def build_index(out_dir: Path, entries: Sequence[dict[str, Any]], *, now: datetime | None = None) -> Path:
-    """Write index.html linking every exported pack, grouped by subject."""
-    stamp = (now or datetime.now()).strftime("%Y-%m-%d %H:%M")
+    """Write index.html linking every exported pack, grouped by subject.
+
+    ``now`` is opt-in: without it the page carries no export time, so two runs
+    over unchanged packs are byte-identical. Callers that want a visible
+    timestamp pass it explicitly.
+    """
+    path = out_dir / "index.html"
+    _check_target(out_dir, path)
+    _write_page(path, _index_content(entries, now=now))
+    return path
+
+
+def _index_content(entries: Sequence[dict[str, Any]], *, now: datetime | None) -> bytes:
+    stamp = now.strftime("%Y-%m-%d %H:%M") if now is not None else None
     total_items = sum(e["items"] for e in entries)
     total_bytes = sum(e["bytes"] for e in entries)
     groups = _group(entries)
@@ -106,7 +188,7 @@ def build_index(out_dir: Path, entries: Sequence[dict[str, Any]], *, now: dateti
     for group in groups:
         rows = sorted(
             (e for e in entries if e["subject"] == group["name"]),
-            key=lambda e: e["chapter"],
+            key=lambda e: _natural_key(e["chapter"]),
         )
         body = "\n".join(
             f'          <tr><td><a href="{group["folder"]}/{html.escape(row["file"])}">'
@@ -131,7 +213,10 @@ def build_index(out_dir: Path, entries: Sequence[dict[str, Any]], *, now: dateti
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>复习包 · 全部分类索引</title>
 <style>
-:root{{--bg:#eceef1;--card:#fbfbfc;--ink:#1f2430;--muted:#667085;--line:#e4e7ec;--brand:#0f766e;--radius:22px}}
+:root{{color-scheme:light;--bg:#eceef1;--card:#fbfbfc;--ink:#1f2430;--muted:#5a6472;--line:#e4e7ec;--brand:#0f766e;--radius:22px}}
+@media (prefers-color-scheme:dark){{
+  :root{{color-scheme:dark;--bg:#0b0d0f;--card:#16191c;--ink:#f2f4f7;--muted:#9aa3af;--line:#262a30;--brand:#5ec8bd}}
+}}
 *{{box-sizing:border-box}}
 body{{margin:0;padding:36px 20px 64px;background:var(--bg);color:var(--ink);
 font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC","Microsoft YaHei",sans-serif}}
@@ -148,20 +233,22 @@ th{{font-size:12px;color:var(--muted);font-weight:600}}
 tr:last-child td{{border-bottom:0}}
 a{{color:var(--brand);text-decoration:none}}
 a:hover{{text-decoration:underline}}
+td a{{display:inline-block;padding:10px 0}}
 .num{{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}}
 footer{{color:var(--muted);font-size:12px;margin-top:8px}}
-@media print{{body{{background:#fff;padding:0}}section.subject{{box-shadow:none}}a{{color:inherit}}}}
+@media print{{
+  :root{{color-scheme:light;--bg:#fff;--card:#fff;--ink:#000;--muted:#333;--line:#bbb;--brand:#000}}
+  body{{background:#fff;padding:0}}section.subject{{box-shadow:none}}a{{color:inherit}}
+}}
 </style></head>
 <body><main>
 <h1>复习包 · 全部分类索引</h1>
-<p class="meta">{len(entries)} 个包 · {total_items} 道题 · 合计 {_megabytes(total_bytes)} · 导出于 {stamp}</p>
+<p class="meta">{len(entries)} 个包 · {total_items} 道题 · 合计 {_megabytes(total_bytes)}{f" · 导出于 {stamp}" if stamp else ""}</p>
 {chr(10).join(sections)}
 <footer>按科目分目录存放；每次导出整树重写，不再生成按日期的快照目录。</footer>
 </main></body></html>
 """
-    path = out_dir / "index.html"
-    path.write_text(page, encoding="utf-8")
-    return path
+    return page.encode("utf-8")
 
 
 def export_tree(
@@ -187,28 +274,36 @@ def export_tree(
     entries: list[dict[str, Any]] = []
     skipped: list[dict[str, str]] = []
     warnings: list[str] = []
-    written: dict[str, set[str]] = {}
+    pages: dict[Path, bytes] = {}
+    retained: set[str] = set()
+    names: set[str] = set()
+    selected_folders: dict[str, str] = {}
 
     for meta in service.store.list_specs():
         spec = service.store.get_spec(meta["spec_id"])
         subject, chapter = split_pack_title(getattr(spec, "title", ""))
         if allow and subject not in allow:
             continue
+        folder = safe_component(subject)
+        filename = safe_component(chapter) + ".html"
+        destination = out / folder / filename
+        relative = destination.relative_to(out).as_posix()
+        previous_subject = selected_folders.setdefault(folder.casefold(), subject)
+        if previous_subject != subject or relative.casefold() in names:
+            raise ExportConflict(f"more than one pack maps to {relative}")
+        names.add(relative.casefold())
         try:
             page = service.export(spec.id)
         except QualityGateFailed as exc:
+            retained.add(relative.casefold())
             skipped.append({
                 "title": (getattr(spec, "title", "") or spec.id).strip(),
                 "reason": _gate_reason(exc),
             })
             continue
-        folder = safe_component(subject)
-        filename = safe_component(chapter) + ".html"
         data = page.encode("utf-8")
-        if not dry_run:
-            (out / folder).mkdir(parents=True, exist_ok=True)
-            (out / folder / filename).write_bytes(data)
-            written.setdefault(folder, set()).add(filename)
+        pages[destination] = data
+        retained.add(relative.casefold())
         entries.append({
             "subject": subject,
             "folder": folder,
@@ -224,18 +319,31 @@ def export_tree(
             warnings.append(f"unknown subject: {name} (no pack title starts with it)")
 
     index_path: Path | None = None
+    wanted_index = out / "index.html"
+    if index and (entries or (not allow and _is_managed(wanted_index))):
+        pages[wanted_index] = _index_content(entries, now=now)
+
+    for path in pages:
+        _check_target(out, path)
+
     stale: list[str] = []
     if not dry_run:
-        for folder, names in written.items():
-            for path in sorted((out / folder).glob("*.html")):
-                if path.name not in names:
+        for path, data in pages.items():
+            _check_target(out, path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _write_page(path, data)
+        if wanted_index in pages:
+            index_path = wanted_index
+        for folder in sorted(out.iterdir()) if out.is_dir() else ():
+            if _is_link(folder) or not folder.is_dir():
+                continue
+            if allow and folder.name.casefold() not in selected_folders:
+                continue
+            for path in sorted(folder.glob("*.html")):
+                relative = path.relative_to(out).as_posix()
+                if relative.casefold() not in retained and _is_managed(path):
                     path.unlink()
-                    stale.append(path.relative_to(out).as_posix())
-            if not any((out / folder).iterdir()):
-                (out / folder).rmdir()
-        if index and entries:
-            out.mkdir(parents=True, exist_ok=True)
-            index_path = build_index(out, entries, now=now)
+                    stale.append(relative)
 
     return {
         "out_dir": str(out),

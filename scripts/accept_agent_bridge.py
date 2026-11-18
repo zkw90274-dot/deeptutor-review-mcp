@@ -1,17 +1,18 @@
-"""Agent tool-call acceptance: the full ten-tool review surface, no HTTP.
+"""Agent tool-call acceptance: the full review tool surface, no HTTP.
 
 Run with the project virtualenv:
 
     .venv/Scripts/python.exe scripts/accept_agent_bridge.py
 
-Unlike ``accept_phase05.py`` this drives no server: it instantiates the ten
-review agent tools directly (the same classes the manifest advertises) and
+Unlike ``accept_phase05.py`` this drives no server: it instantiates the review
+agent tools directly (the same classes the manifest advertises) and
 calls them in the order a real agent would, per the frozen contract in
 ``docs/maintainer-notes.md`` §5:
 
-    review_specs -> review_today -> review_hint(1, 2) -> review_attempt(good)
-    -> replay -> review_attempt(again) -> review_weakness
-    -> review_export_link -> review_generate(chapters, start, poll)
+    review_specs -> review_due -> review_today -> review_hint(1, 2)
+    -> review_attempt(good) -> replay -> review_attempt(again)
+    -> review_weakness -> review_export_link
+    -> review_generate(chapters, start, poll)
 
 ``review_generate`` runs against an injected fake generator and job store so
 the tool wiring (chapter preflight, ``replace`` pass-through, polling) is
@@ -127,6 +128,7 @@ def main() -> int:
         from deeptutor.review.agent_tools import (
             ReviewAttemptTool,
             ReviewBookFiguresTool,
+            ReviewDueTool,
             ReviewExportLinkTool,
             ReviewExportTreeTool,
             ReviewGenerateTool,
@@ -141,13 +143,14 @@ def main() -> int:
         print(
             "ACCEPTANCE FAILED - the Phase 29 WS-A deliverable "
             "src/deeptutor/review/agent_tools.py is missing or does not export "
-            "the ten frozen tool classes yet."
+            "the frozen tool classes yet."
         )
         shutil.rmtree(_HOME, ignore_errors=True)
         return 2
 
     tools = {
         "review_specs": ReviewSpecsTool(),
+        "review_due": ReviewDueTool(),
         "review_today": ReviewTodayTool(),
         "review_attempt": ReviewAttemptTool(),
         "review_weakness": ReviewWeaknessTool(),
@@ -201,6 +204,31 @@ def main() -> int:
         row = next(row for row in specs if row.get("id") == SPEC_ID)
         assert_true(bool(row.get("title")), "review_specs: spec row missing title")
         return {"specs": len(specs)}
+
+    def step_due() -> dict:
+        """The cross-pack view must agree with review_today and write nothing."""
+        from deeptutor.review.storage import ReviewStore
+
+        store = ReviewStore()
+        before = len(store.sessions_for_spec(SPEC_ID))
+        payload = run("review_due")
+        after = len(store.sessions_for_spec(SPEC_ID))
+        assert_true(
+            before == after,
+            f"review_due opened a session ({before} -> {after}); it must be read-only",
+        )
+        packs = payload.get("packs")
+        assert_true(isinstance(packs, list) and packs, "review_due: no pack has work today")
+        row = next((entry for entry in packs if entry.get("spec_id") == SPEC_ID), None)
+        assert_true(
+            row is not None,
+            f"review_due: {SPEC_ID} missing from {sorted(p.get('spec_id') for p in packs)}",
+        )
+        for key in ("queued", "due", "new", "estimated_minutes"):
+            assert_true(isinstance(row.get(key), int), f"review_due: {key} is not an integer")
+        assert_true(row["queued"] > 0, "review_due: queued must be positive for a seeded pack")
+        assert_true("instruction" in payload and payload["instruction"], "review_due: no instruction")
+        return {"packs": payload["count"], "queued": row["queued"]}
 
     def step_today() -> dict:
         payload = run("review_today", spec_id=SPEC_ID)
@@ -425,23 +453,24 @@ def main() -> int:
             agent_tools_mod._jobs_module = original_jobs
         return {"chapters": 1, "job_id": started["job_id"], "status": polled["status"]}
 
-    step("0. definitions: ten tools named per contract", verify_definitions)
+    step("0. definitions: every tool named per contract", verify_definitions)
     if not step("1. golden spec ingested through put_spec (isolated home)", seed_spec):
         print("ACCEPTANCE FAILED — could not seed the golden spec.")
         return 1
     step("2. review_specs lists the golden spec", step_specs)
-    if not step("3. review_today returns items", step_today):
+    step("3. review_due summarises due work without opening a session", step_due)
+    if not step("4. review_today returns items", step_today):
         print("ACCEPTANCE FAILED — no item_id to relay into review_attempt.")
         return 1
-    step("4. review_hint returns graded hints without the answer", step_hint)
-    step("5. review_attempt records the learner's 'good' self-rating", step_attempt_good)
-    step("6. same submission_id replays idempotently", step_replay)
-    step("7. review_attempt records an 'again' self-rating", step_attempt_again)
-    step("8. description guards: self-assess / never grade", step_description_guard)
-    step("9. review_weakness ranks concepts after attempts", step_weakness)
-    step("10. review_export_link returns the relative export URL", step_export_link)
-    step("11. unknown spec soft-fails with error + redirect", step_soft_failure)
-    step("12. review_generate: chapters -> start -> poll (fake pipeline)", step_generate)
+    step("5. review_hint returns graded hints without the answer", step_hint)
+    step("6. review_attempt records the learner's 'good' self-rating", step_attempt_good)
+    step("7. same submission_id replays idempotently", step_replay)
+    step("8. review_attempt records an 'again' self-rating", step_attempt_again)
+    step("9. description guards: self-assess / never grade", step_description_guard)
+    step("10. review_weakness ranks concepts after attempts", step_weakness)
+    step("11. review_export_link returns the relative export URL", step_export_link)
+    step("12. unknown spec soft-fails with error + redirect", step_soft_failure)
+    step("13. review_generate: chapters -> start -> poll (fake pipeline)", step_generate)
 
     passed = len([s for s in REPORT["steps"] if s["passed"]])
     total = len(REPORT["steps"])

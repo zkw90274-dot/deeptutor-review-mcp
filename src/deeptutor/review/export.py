@@ -14,7 +14,7 @@ import time
 import uuid
 from functools import lru_cache
 from importlib.resources import files
-from typing import Any
+from typing import Any, Callable
 
 from deeptutor.learning.models import RepetitionState
 
@@ -107,7 +107,7 @@ def _template() -> str:
     )
 
 
-def _answer_display(item: Item) -> str:
+def _answer_display(item: Item, *, answer_text: str | None = None) -> str:
     if item.kind == "single_choice" and item.answer.choice_index is not None:
         option = item.options[item.answer.choice_index]
         return f"{option.label}. {option.text}"
@@ -115,28 +115,105 @@ def _answer_display(item: Item) -> str:
         if item.answer.tolerance:
             return f"{item.answer.value:g}（容差 ±{item.answer.tolerance:g}）"
         return f"{item.answer.value:g}"
-    return item.answer.text
+    return item.answer.text if answer_text is None else answer_text
+
+
+#: Lines that open or close a fenced code block. Math inside such a block is
+#: literal text in the export, so normalisation must leave it untouched.
+_FENCE_LINE = re.compile(r"^[ \t]*(?:```+|~~~+)")
+#: Two or more underscores in a row are a fill-in blank, not TeX subscripts.
+_BLANK_RUN = re.compile(r"_{2,}")
+#: A backslash command is the cheapest reliable signal of bare TeX.
+_LATEX_COMMAND = re.compile(r"\\[A-Za-z]+")
+#: ``C:\Users`` and friends are paths, not formulas.
+_WINDOWS_PATH = re.compile(r"\b[A-Za-z]:\\")
+_CJK = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")
+
+
+def _outside_fenced_code(text: str, transform: Callable[[str], str]) -> str:
+    """Apply ``transform`` to the text between fenced code blocks only."""
+    out: list[str] = []
+    segment: list[str] = []
+    in_fence = False
+    for line in text.splitlines(keepends=True):
+        if _FENCE_LINE.match(line):
+            chunk = "".join(segment)
+            out.append(chunk if in_fence else transform(chunk))
+            segment = []
+            out.append(line)
+            in_fence = not in_fence
+            continue
+        segment.append(line)
+    chunk = "".join(segment)
+    out.append(chunk if in_fence else transform(chunk))
+    return "".join(out)
+
+
+def normalize_math_placeholders(text: str) -> str:
+    """Turn a run of underscores inside math into a visible blank.
+
+    MathJax reads ``____`` as chained subscripts and raises ``Missing open
+    brace for subscript``; the template then restores the raw source and shows
+    the page-wide warning. The learner meant a fill-in blank, so replace the
+    run with ``\\underline{\\hspace{2em}}`` inside math segments only. Single
+    underscores (``x_1``) and fenced code are left exactly as written, and the
+    replacement is idempotent because it contains no underscores.
+    """
+    if not text or "____" not in text:
+        return text
+
+    def replace(match: re.Match[str]) -> str:
+        return _BLANK_RUN.sub(r"\\underline{\\hspace{2em}}", match.group(0))
+
+    return _outside_fenced_code(text, lambda chunk: _MATH_PATTERN.sub(replace, chunk))
+
+
+def normalize_prose_math(text: str, *, pure_math_only: bool = False) -> str:
+    """Wrap a bare TeX fragment in ``$...$`` where the page would show source.
+
+    Formula variable names, a free-text answer and correction choices are
+    stored by some models without delimiters, while the template only typesets
+    text that carries them. The rule stays narrow: a dollar sign means the
+    author already chose a form, a Windows path is not math, and with
+    ``pure_math_only`` a CJK answer is prose and must not be wrapped.
+    """
+    if not text or "$" in text:
+        return text
+    value = text.strip()
+    if not value or _WINDOWS_PATH.search(value) or not _LATEX_COMMAND.search(value):
+        return text
+    if pure_math_only and _CJK.search(value):
+        return text
+    return f"${value}$"
 
 
 def _item_payload(spec: ReviewSpec, item: Item) -> dict[str, Any]:
+    answer_text = normalize_prose_math(item.answer.text, pure_math_only=True)
+    correction = build_correction(spec, item)
+    # The correction buttons go through the same rich-text renderer as an
+    # answer, so a bare-TeX choice would still show its source there.
+    for option in correction["options"]:
+        option["text"] = normalize_prose_math(option["text"], pure_math_only=True)
     return {
         "id": item.id,
         "kind": item.kind,
-        "stem": item.stem,
+        "stem": normalize_math_placeholders(item.stem),
         "difficulty": item.difficulty,
         "options": [
             {"label": option.label, "text": option.text} for option in item.options
         ],
-        "answer_display": _answer_display(item),
+        "answer_display": normalize_math_placeholders(
+            _answer_display(item, answer_text=answer_text)
+        ),
         "answer_index": item.answer.choice_index,
-        "explanation": item.explanation,
+        "explanation": normalize_math_placeholders(item.explanation),
         "study_aids": {
             "assumptions": list(item.assumptions),
             "self_check": item.self_check,
             "pitfalls": list(item.pitfalls),
             "table": item.study_table,
         },
-        "correction": build_correction(spec, item),
+        "correction": correction,
         "source_ids": item.source_ids,
         "concept_ids": item.concept_ids,
     }
@@ -384,9 +461,14 @@ def _payload(
                 "definition": concept.definition,
                 "formulas": [
                     {
-                        "latex": formula.latex,
-                        "conditions": formula.conditions,
-                        "variables": formula.variables,
+                        "latex": normalize_math_placeholders(formula.latex),
+                        "conditions": normalize_math_placeholders(formula.conditions),
+                        "variables": {
+                            normalize_math_placeholders(
+                                normalize_prose_math(name)
+                            ): normalize_math_placeholders(description)
+                            for name, description in formula.variables.items()
+                        },
                     }
                     for formula in concept.formulas
                 ],
@@ -407,7 +489,14 @@ def _payload(
         "snapshot": snapshot,
         "quality": {
             "passed": quality.passed,
-            "warnings": quality.warnings,
+            # G11 is generator guidance with internal field paths, not a
+            # caveat about the learner's material. Keep it in the stored
+            # report for the tool layer, but off the learner-facing page.
+            "warnings": [
+                warning
+                for warning in quality.warnings
+                if not warning.startswith("G11-bare-tex:")
+            ],
         },
         # Concepts the QA gates allow through without a source anchor (only
         # non-kb coverage reaches export). Surfaced so the reader knows which

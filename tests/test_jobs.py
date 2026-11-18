@@ -432,7 +432,51 @@ def test_run_generation_fails_on_quality_gate(
     assert "quality gates failed" in stored["error"]
     assert "G3" in stored["error"]
     assert "too few items" in stored["error"]
-    assert len(stored["error"]) <= 300
+    assert len(stored["error"]) <= 600
+
+
+def test_gate_failure_error_carries_field_paths(
+    review_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    report = QualityReport(
+        passed=False,
+        gates=[
+            GateResult(
+                gate="G10-math-balance",
+                passed=False,
+                message="unbalanced $ delimiters",
+                details=[
+                    "items.[2].stem: unbalanced $ delimiters",
+                    "items.[3].answer.text: unbalanced $ delimiters",
+                    "items.[4].stem: unbalanced $ delimiters",
+                    "items.[5].stem: unbalanced $ delimiters",
+                ],
+            )
+        ],
+    )
+
+    def fake_generate(**kwargs):
+        raise QualityGateFailed(report)
+
+    _install_generate(monkeypatch, generate_spec_from_kb=fake_generate)
+    job = jobs.create_job(
+        kb="kb-x",
+        chapter="第1章",
+        num_questions=6,
+        question_types=None,
+        difficulty="medium",
+    )
+
+    jobs._run_generation(job)
+
+    stored = _read(review_home, job["job_id"])
+    assert stored["status"] == "failed"
+    assert "items.[2].stem" in stored["error"]
+    assert "items.[3].answer.text" in stored["error"]
+    # Only the first three details are included; the remainder is counted.
+    assert "items.[4].stem" in stored["error"]
+    assert "items.[5].stem" not in stored["error"]
+    assert "+1 more" in stored["error"]
 
 
 def test_run_generation_fails_on_unexpected_exception(

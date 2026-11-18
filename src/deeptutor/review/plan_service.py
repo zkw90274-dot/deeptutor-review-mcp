@@ -33,6 +33,19 @@ from deeptutor.review.study_plan import (
 DEFAULT_TIMEZONE = "Asia/Shanghai"
 
 
+def parse_plan_date(value: str, *, field: str = "date") -> date:
+    if isinstance(value, str):
+        text = value.strip()
+        try:
+            parsed = date.fromisoformat(text)
+        except ValueError:
+            pass
+        else:
+            if parsed.isoformat() == text:
+                return parsed
+    raise PlanError(f"{field} must be a date in YYYY-MM-DD form")
+
+
 def local_today(timezone: str) -> date:
     try:
         zone = ZoneInfo(timezone)
@@ -427,11 +440,8 @@ def create_plan(
     timezone: str = DEFAULT_TIMEZONE,
     sync: bool = True,
 ) -> dict[str, Any]:
-    try:
-        start = date.fromisoformat(start_date)
-        end = date.fromisoformat(end_date)
-    except ValueError as exc:
-        raise PlanError(f"dates must be YYYY-MM-DD: {exc}") from exc
+    start = parse_plan_date(start_date, field="start_date")
+    end = parse_plan_date(end_date, field="end_date")
     work = attach_parts(
         subject, chapter_work(subject, chapters), study_minutes_per_day(daily_minutes)
     )
@@ -536,6 +546,7 @@ def plan_today(
     on_date: str | None = None,
     refresh_mirror: bool = False,
 ) -> dict[str, Any]:
+    explicit_date = parse_plan_date(on_date).isoformat() if on_date is not None else None
     if plan_id:
         plan = store.get_plan(plan_id)
         if plan is None:
@@ -549,7 +560,7 @@ def plan_today(
         # Keep the day as an ISO string end to end: task rows store strings,
         # and comparing a date object with them raises TypeError (a failure the
         # MCP client only sees as a non-JSON payload).
-        local = str(on_date) if on_date else local_today(
+        local = explicit_date or local_today(
             plan.get("timezone", DEFAULT_TIMEZONE)
         ).isoformat()
         tasks = store.list_tasks(plan["plan_id"], local_date=local)
@@ -656,6 +667,7 @@ def complete_task(
     self_note: str = "",
     sync: bool = True,
 ) -> dict[str, Any]:
+    local_date = parse_plan_date(local_date).isoformat()
     plan = store.get_plan(plan_id)
     if plan is None:
         raise PlanError(f"unknown plan: {plan_id}")
@@ -704,7 +716,7 @@ def replan(
         raise PlanError(f"unknown plan: {plan_id}")
     today = local_today(plan.get("timezone", DEFAULT_TIMEZONE))
     today_key = today.isoformat()
-    new_end = date.fromisoformat(end_date or plan["end_date"])
+    new_end = parse_plan_date(end_date or plan["end_date"], field="end_date")
     new_daily = int(daily_minutes or plan["daily_minutes"])
     capacities: list[int] | None = None
     if day_capacities:

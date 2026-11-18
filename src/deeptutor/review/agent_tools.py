@@ -6,9 +6,10 @@ export and the overview page). These tools make the same
 chat, in the same shape as the mastery navigation tools
 (``deeptutor.tools.mastery_nav``).
 
-Ten tools, split along what the learner is asking for:
+Eleven tools, split along what the learner is asking for:
 
 * ``review_specs`` — what can I review, and how big is each pack?
+* ``review_due`` — which packs have work today, across the whole library?
 * ``review_today`` — what is due right now, and what does each item ask?
 * ``review_attempt`` — record the learner's **own** self-assessment.
 * ``review_weakness`` — what am I weakest at, read-only.
@@ -18,6 +19,10 @@ Ten tools, split along what the learner is asking for:
 * ``review_generate`` — turn one knowledge-base chapter into a new pack.
 * ``review_hint`` — a two-step hint that never states the answer.
 * ``review_plan`` — schedule chapters into daily study and review tasks.
+
+``review_due`` exists because the most common question ("what should I review
+today?") otherwise costs one ``review_today`` per pack, and every one of those
+opens or reuses a session and records views: a read in name, a write in fact.
 
 Two properties keep them safe to mount permanently:
 
@@ -66,6 +71,7 @@ from deeptutor.review.projection import project_attempt
 from deeptutor.review.qa import run_gates
 from deeptutor.review.service import AttemptInput, ReviewService
 from deeptutor.review.storage import (
+    ReadOnlyStoreUnavailable,
     ReviewStore,
     SessionConflict,
     SpecNotFound,
@@ -84,6 +90,11 @@ logger = logging.getLogger(__name__)
 TEXT_LIMIT = 200
 STEM_LIMIT = 2000
 OPTION_LIMIT = 800
+
+#: The learner's own wording behind a rating is stored as evidence, not as
+#: content: clip it so one rambling sentence cannot turn the event row into a
+#: transcript. Matches ``service.MAX_LEARNER_QUOTE_CHARS``.
+LEARNER_QUOTE_LIMIT = 500
 
 #: The weakness tool always answers with the top five, matching the Today
 #: panel and ``GET /api/review/{id}/weakness``. The tool surface stays narrow on
@@ -114,10 +125,11 @@ def _public_base_url() -> str:
         return ""
     return raw.rstrip("/")
 
-#: The ten tools every surface serves (chat, MCP server, skill). The tuple
-#: is frozen by tests on all three surfaces; add tool names here first.
+#: The tools every surface serves (chat, MCP server, skill). The tuple is
+#: frozen by tests on all three surfaces; add tool names here first.
 REVIEW_AGENT_TOOL_NAMES: tuple[str, ...] = (
     "review_specs",
+    "review_due",
     "review_today",
     "review_attempt",
     "review_weakness",
@@ -161,6 +173,12 @@ def _failure(message: str) -> ToolResult:
 
 
 def _internal_failure(tool: str, exc: Exception) -> ToolResult:
+    if isinstance(exc, ReadOnlyStoreUnavailable):
+        return _soft(
+            tool=tool,
+            error=str(exc),
+            instruction="Ask the operator to initialize or migrate the Review Studio database in write mode.",
+        )
     logger.warning("%s failed: %r", tool, exc, exc_info=True)
     return _failure(
         f"{tool} failed ({type(exc).__name__}). The review store may be "
@@ -201,9 +219,8 @@ def _resolve_export_dir(requested: str) -> tuple[Path | None, str | None]:
     path = Path(requested).expanduser().resolve() if requested else base
     if any(path == root or root in path.parents for root in roots):
         return path, None
-    allowed = ", ".join(str(root) for root in roots)
     return None, (
-        f"out_dir must be inside {allowed}; refusing {path}. Pass "
+        "Use the default export folder or an explicitly allowed directory. Pass "
         "--allow-out-dir when starting the server if this location is intentional."
     )
 
@@ -241,7 +258,7 @@ def _service() -> ReviewService:
     must read the same ``DEEPTUTOR_REVIEW_HOME``, and neither may cache a store
     across a home change (tests and the acceptance script both swap it).
     """
-    return ReviewService()
+    return ReviewService(ReviewStore(read_only=True)) if capabilities.current().read_only else ReviewService()
 
 
 async def _service_and_spec(
@@ -358,6 +375,100 @@ class ReviewSpecsTool(BaseTool):
             )
         return _result(
             {"count": len(rows), "specs": rows, "instruction": instruction},
+            tool=tool,
+        )
+
+
+class ReviewDueTool(BaseTool):
+    """Cross-pack due summary: which packs have work today, and how much."""
+
+    def get_definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="review_due",
+            description=(
+                "Summarise what is due across every pack in one read-only call: "
+                "for each pack that has work today, how many items its queue "
+                "would present, how many are due review vs new material, the "
+                "estimated minutes, and when it was last reviewed. Use it to "
+                "answer 'what should I review today?' or 'which pack should I "
+                "start with?' before choosing one pack for review_today. "
+                "Unlike review_today it opens no session and records nothing, "
+                "so it is safe to call repeatedly, and it does not return any "
+                "question text — call review_today for the actual items."
+            ),
+            parameters=[
+                ToolParameter(
+                    name="subject",
+                    type="string",
+                    required=False,
+                    description=(
+                        "Optional subject filter: only packs whose title "
+                        "contains this text (case-sensitive substring)."
+                    ),
+                )
+            ],
+        )
+
+    async def execute(self, **kwargs: Any) -> ToolResult:
+        tool = "review_due"
+        subject = _text(kwargs.get("subject"))
+        try:
+            service = await asyncio.to_thread(_service)
+            overview = await asyncio.to_thread(
+                service.due_overview, subject=subject or None
+            )
+        except Exception as exc:  # noqa: BLE001
+            return _internal_failure(tool, exc)
+
+        rows: list[dict[str, Any]] = []
+        for row in overview.get("packs") or []:
+            rows.append(
+                {
+                    "spec_id": _text(row.get("spec_id")),
+                    "title": _clip(row.get("title")),
+                    "subject": _clip(row.get("subject")),
+                    "queued": int(row.get("queued") or 0),
+                    "due": int(row.get("due") or 0),
+                    "new": int(row.get("new") or 0),
+                    "repeat": int(row.get("repeat") or 0),
+                    "estimated_minutes": int(row.get("estimated_minutes") or 0),
+                    "recovery": bool(row.get("recovery")),
+                    "last_reviewed_at": row.get("last_reviewed_at"),
+                }
+            )
+        totals = overview.get("totals") or {}
+        if rows:
+            instruction = (
+                "These are queue counts, not question text: pick one pack with "
+                "the learner (or the largest `queued` when they did not say), "
+                "then call review_today with its `spec_id` to start. `due` plus "
+                "`new` may be larger than `queued` when the daily budget cut the "
+                "queue; do not tell the learner they must clear every one. A "
+                "pack with `recovery: true` deliberately shows only a handful — "
+                "say that resuming is enough and do not call it a backlog."
+            )
+        else:
+            instruction = (
+                "Nothing is queued today"
+                + (f" for packs matching {subject!r}" if subject else "")
+                + ". Say so plainly; offer to check review_specs for packs, or "
+                "to generate new material. Do not invent due items."
+            )
+        return _result(
+            {
+                "generated_at": overview.get("generated_at"),
+                "subject": overview.get("subject"),
+                "count": len(rows),
+                "totals": {
+                    "queued": int(totals.get("queued") or 0),
+                    "due": int(totals.get("due") or 0),
+                    "new": int(totals.get("new") or 0),
+                    "repeat": int(totals.get("repeat") or 0),
+                    "estimated_minutes": int(totals.get("estimated_minutes") or 0),
+                },
+                "packs": rows,
+                "instruction": instruction,
+            },
             tool=tool,
         )
 
@@ -1189,6 +1300,19 @@ class ReviewAttemptTool(BaseTool):
                     minimum=0,
                     maximum=100,
                 ),
+                ToolParameter(
+                    name="learner_quote",
+                    type="string",
+                    description=(
+                        "The learner's own words for how it went, transcribed "
+                        "as spoken (for example '会，但是想了很久'). Pass it "
+                        "whenever they phrased the rating themselves: it is "
+                        "stored with the event so the rating can be audited "
+                        "later. Never paraphrase, summarise or invent it, and "
+                        "never put your own assessment here."
+                    ),
+                    required=False,
+                ),
             ],
         )
 
@@ -1282,6 +1406,21 @@ class ReviewAttemptTool(BaseTool):
                 item_id=item_id,
             )
 
+        learner_quote: str | None = None
+        raw_quote = kwargs.get("learner_quote")
+        if raw_quote not in (None, ""):
+            if not isinstance(raw_quote, str):
+                return _soft(
+                    tool=tool,
+                    error="learner_quote must be a string",
+                    instruction=(
+                        "Pass the learner's own words verbatim as a string, or "
+                        "omit it when they did not phrase the rating themselves."
+                    ),
+                    item_id=item_id,
+                )
+            learner_quote = raw_quote.strip()[:LEARNER_QUOTE_LIMIT] or None
+
         service, spec, error = await _service_and_spec(
             tool=tool,
             spec_id=kwargs.get("spec_id"),
@@ -1300,6 +1439,7 @@ class ReviewAttemptTool(BaseTool):
             submission_id=submission_id,
             hints_used=hints_used,
             confidence=confidence,
+            learner_quote=learner_quote,
         )
         # Resolve the item here rather than catching ``KeyError`` around
         # ``attempt``: that method also raises ``KeyError`` when a stored spec
@@ -1426,6 +1566,7 @@ class ReviewAttemptTool(BaseTool):
                 "retry": retry,
                 "hints_used": int(result.get("hints_used") or 0),
                 "confidence": result.get("confidence"),
+                "learner_quote": result.get("learner_quote"),
                 "next": {
                     "due_at": result.get("next_due"),
                     "due_at_ts": result.get("next_due_ts"),
@@ -1663,8 +1804,19 @@ class ReviewPlanTool(BaseTool):
         )
 
     async def _create(self, store: ReviewStore, kwargs: dict[str, Any]) -> ToolResult:
+        tool = "review_plan"
         subject = str(kwargs.get("subject") or "").strip()
-        chapters = [str(name).strip() for name in (kwargs.get("chapters") or []) if str(name).strip()]
+        raw_chapters = kwargs.get("chapters")
+        if raw_chapters is not None and (
+            not isinstance(raw_chapters, list)
+            or any(not isinstance(name, str) or not name.strip() for name in raw_chapters)
+        ):
+            return _soft(
+                tool=tool,
+                error="chapters must be a list of non-empty chapter names",
+                instruction="Call review_generate with only kb for the exact chapter names.",
+            )
+        chapters = [name.strip() for name in (raw_chapters or [])]
         end_date = str(kwargs.get("end_date") or "").strip()
         if not subject or not chapters or not end_date:
             return _soft(
@@ -1676,10 +1828,37 @@ class ReviewPlanTool(BaseTool):
                     "exact chapter names."
                 ),
             )
-        start_date = str(
-            kwargs.get("start_date")
-            or plan_service.local_today(plan_service.DEFAULT_TIMEZONE).isoformat()
+        start_date, invalid = _plan_date(
+            kwargs.get("start_date"),
+            tool=tool,
+            field="start_date",
+            default=plan_service.local_today(plan_service.DEFAULT_TIMEZONE).isoformat(),
+            instruction="Pass start_date as YYYY-MM-DD, or omit it to start today.",
         )
+        if invalid is not None:
+            return invalid
+        end_date, invalid = _plan_date(
+            end_date,
+            tool=tool,
+            field="end_date",
+            instruction="Pass end_date as YYYY-MM-DD; it is the day the study must finish by.",
+        )
+        if invalid is not None:
+            return invalid
+        daily_minutes, invalid = _plan_int(
+            kwargs.get("daily_minutes"),
+            tool=tool,
+            field="daily_minutes",
+            minimum=15,
+            maximum=240,
+            default=60,
+            instruction=(
+                "Pass daily_minutes as an integer between 15 and 240 (total "
+                "daily budget, review included), or omit it for 60."
+            ),
+        )
+        if invalid is not None:
+            return invalid
         payload = await asyncio.to_thread(
             plan_service.create_plan,
             store,
@@ -1687,7 +1866,7 @@ class ReviewPlanTool(BaseTool):
             chapters=chapters,
             start_date=start_date,
             end_date=end_date,
-            daily_minutes=int(kwargs.get("daily_minutes") or 60),
+            daily_minutes=daily_minutes,
         )
         if payload.get("ok"):
             days = len({task["local_date"] for task in payload["tasks"]})
@@ -1752,11 +1931,19 @@ class ReviewPlanTool(BaseTool):
                 return await self._create(store, kwargs)
 
             if action == "today":
+                on_date, invalid = _plan_date(
+                    kwargs.get("date"),
+                    tool=tool,
+                    field="date",
+                    instruction="Pass date as YYYY-MM-DD, or omit it for today.",
+                )
+                if invalid is not None:
+                    return invalid
                 payload = await asyncio.to_thread(
                     plan_service.plan_today,
                     store,
                     plan_id=kwargs.get("plan_id"),
-                    on_date=kwargs.get("date"),
+                    on_date=on_date,
                     refresh_mirror=True,
                 )
                 payload["instruction"] = (
@@ -1780,18 +1967,38 @@ class ReviewPlanTool(BaseTool):
                         error="complete needs plan_id and seq",
                         instruction="Call action=today first and pass the plan_id/date/seq of the task.",
                     )
+                checked_seq, invalid = _plan_int(
+                    seq,
+                    tool=tool,
+                    field="seq",
+                    minimum=1,
+                    maximum=10_000,
+                    instruction=(
+                        "Pass the integer seq from action=today (for example 1), "
+                        "not a string or a whole task object."
+                    ),
+                )
+                if invalid is not None:
+                    return invalid
+                assert checked_seq is not None  # required above; kept for mypy
                 timezone = (store.get_plan(plan_id) or {}).get("timezone") or (
                     plan_service.DEFAULT_TIMEZONE
                 )
-                local_date = str(
-                    kwargs.get("date") or plan_service.local_today(timezone).isoformat()
+                local_date, invalid = _plan_date(
+                    kwargs.get("date"),
+                    tool=tool,
+                    field="date",
+                    default=plan_service.local_today(timezone).isoformat(),
+                    instruction="Pass date as YYYY-MM-DD, or omit it for today.",
                 )
+                if invalid is not None:
+                    return invalid
                 payload = await asyncio.to_thread(
                     plan_service.complete_task,
                     store,
                     plan_id=plan_id,
                     local_date=local_date,
-                    seq=int(seq),
+                    seq=checked_seq,
                     self_note=str(kwargs.get("self_note") or ""),
                 )
                 payload["instruction"] = (
@@ -1832,12 +2039,35 @@ class ReviewPlanTool(BaseTool):
                     weekly_budget = {
                         day: value for day, value in enumerate(minutes)
                     }
+                end_date, invalid = _plan_date(
+                    kwargs.get("end_date"),
+                    tool=tool,
+                    field="end_date",
+                    optional=True,
+                    instruction="Pass end_date as YYYY-MM-DD, or omit it to keep the plan's end date.",
+                )
+                if invalid is not None:
+                    return invalid
+                daily_minutes, invalid = _plan_int(
+                    kwargs.get("daily_minutes"),
+                    tool=tool,
+                    field="daily_minutes",
+                    minimum=15,
+                    maximum=240,
+                    optional=True,
+                    instruction=(
+                        "Pass daily_minutes as an integer between 15 and 240 "
+                        "(total daily budget, review included), or omit it."
+                    ),
+                )
+                if invalid is not None:
+                    return invalid
                 payload = await asyncio.to_thread(
                     plan_service.replan,
                     store,
                     plan_id=plan_id,
-                    end_date=kwargs.get("end_date"),
-                    daily_minutes=kwargs.get("daily_minutes"),
+                    end_date=end_date,
+                    daily_minutes=daily_minutes,
                     weekly_budget=weekly_budget,
                 )
                 payload["instruction"] = (
@@ -1910,18 +2140,20 @@ class ReviewPlanTool(BaseTool):
 
 
 class ReviewExportLinkTool(BaseTool):
-    """Hand the learner the offline review page for one pack."""
+    """Hand the learner the export page URL for one pack."""
 
     def get_definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="review_export_link",
             description=(
-                "Return the offline review page for one Review Studio pack as a "
-                "relative URL the learner can open in a browser: the whole pack "
-                "renders self-contained, including figures, so it works without "
-                "the app or a network. Use it when the learner wants to study "
-                "away from the chat, print the material, or keep a copy. It "
-                "changes nothing and starts no session."
+                "Return the URL of the printable review page for one Review "
+                "Studio pack. The page itself renders self-contained, including "
+                "figures, so once open it works offline — but the URL is served "
+                "by the DeepTutor web app, so this tool needs that app running "
+                "and the learner signed in; it does not work in a standalone "
+                "deployment. Use review_export_tree when the learner needs an "
+                "offline copy with no web app at all. This call changes nothing "
+                "and starts no session."
             ),
             parameters=[
                 ToolParameter(
@@ -1971,9 +2203,11 @@ class ReviewExportLinkTool(BaseTool):
             # only safe absolute link. Keep ``url`` for existing consumers.
             payload["absolute_url"] = f"{base}{url}"
         payload["instruction"] = (
-            "Give the learner this link (or the export card the UI "
-            "renders for it): opening it in a browser downloads a "
-            "self-contained offline review page for this pack. Use "
+            "Give the learner this link (or the export card the UI renders for "
+            "it): opening it in a browser downloads a self-contained review "
+            "page for this pack. The link is served by the DeepTutor web app, "
+            "so if that app is not running for this learner, say so and offer "
+            "review_export_tree instead of handing over a dead link. Use "
             "`absolute_url` when present; otherwise `url` is relative to the "
             "host app. Do not paste the page's contents into the chat, and do "
             "not claim you opened it yourself — you cannot."
@@ -2004,8 +2238,9 @@ class ReviewExportTreeTool(BaseTool):
                     name="out_dir",
                     type="string",
                     description=(
-                        "Destination folder, created if missing. Omit to write "
-                        "to <review home>/exports."
+                        "Dedicated destination folder, created if missing. Omit to use "
+                        "<review home>/exports. Existing personal or legacy HTML with "
+                        "a conflicting name is preserved."
                     ),
                     required=False,
                 ),
@@ -2044,6 +2279,12 @@ class ReviewExportTreeTool(BaseTool):
             subjects = [str(name).strip() for name in raw_subjects if str(name).strip()] or None
             summary = await asyncio.to_thread(
                 export_tree.export_tree, service, out_dir, subjects=subjects
+            )
+        except export_tree.ExportConflict as exc:
+            return _soft(
+                tool=tool,
+                error=str(exc),
+                instruction="Keep the existing file and choose a new export directory.",
             )
         except Exception as exc:  # noqa: BLE001 - tool boundary
             return _internal_failure(tool, exc)
@@ -2125,6 +2366,84 @@ def _bounded_int(value: Any, *, default: int, minimum: int, maximum: int) -> int
     return max(minimum, min(maximum, value))
 
 
+def _plan_int(
+    value: Any,
+    *,
+    tool: str,
+    field: str,
+    minimum: int,
+    maximum: int,
+    default: int | None = None,
+    optional: bool = False,
+    instruction: str,
+) -> tuple[int | None, ToolResult | None]:
+    """A plan argument that must be a real integer in range.
+
+    ``review_plan`` declares twelve optional parameters with one ``enum``
+    action, so the schema cannot enforce per-action types. A model that sends
+    ``"60"`` or ``"abc"`` used to reach ``int(...)`` and surface as an internal
+    failure — an unrecoverable dead end for the agent. Returning a soft failure
+    keeps the single next move (fix the argument and retry) available.
+
+    ``optional=True`` means "absent is fine" (``replan`` may keep the plan's
+    current value); it is distinct from "absent falls back to ``default``"
+    (``create`` starts at 60).
+    """
+    if value is None:
+        if optional:
+            return None, None
+        if default is None:
+            return None, _soft(tool=tool, error=f"{field} is required", instruction=instruction)
+        return default, None
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None, _soft(
+            tool=tool,
+            error=f"{field} must be an integer",
+            instruction=instruction,
+        )
+    if not minimum <= value <= maximum:
+        return None, _soft(
+            tool=tool,
+            error=f"{field} must be between {minimum} and {maximum}",
+            instruction=instruction,
+        )
+    return value, None
+
+
+def _plan_date(
+    value: Any,
+    *,
+    tool: str,
+    field: str,
+    default: str | None = None,
+    optional: bool = False,
+    instruction: str,
+) -> tuple[str | None, ToolResult | None]:
+    """A ``YYYY-MM-DD`` argument, validated before it reaches ``fromisoformat``.
+
+    ``date.fromisoformat`` raises ``ValueError``, which the plan service does
+    not always wrap (``replan`` parses the end date directly), so an
+    ``2026-13-40`` used to become an internal failure rather than a correctable
+    miss.
+
+    ``optional=True`` means "absent means keep what the plan already has".
+    """
+    if value is None or (isinstance(value, str) and not value.strip()):
+        if optional:
+            return None, None
+        if default is None:
+            return None, _soft(tool=tool, error=f"{field} is required", instruction=instruction)
+        return default, None
+    try:
+        return plan_service.parse_plan_date(value, field=field).isoformat(), None
+    except plan_service.PlanError:
+        return None, _soft(
+            tool=tool,
+            error=f"{field} must be a date in YYYY-MM-DD form",
+            instruction=instruction,
+        )
+
+
 def _question_types(value: Any) -> list[str]:
     """Keep the known kinds in the caller's order, falling back to both."""
     if value is None:
@@ -2180,8 +2499,9 @@ class ReviewGenerateTool(BaseTool):
                     name="num_questions",
                     type="integer",
                     description=(
-                        "How many questions to generate. Clamped to "
-                        f"{MIN_NUM_QUESTIONS}-{MAX_NUM_QUESTIONS}."
+                        "How many questions to generate. Must be between "
+                        f"{MIN_NUM_QUESTIONS} and {MAX_NUM_QUESTIONS}; values "
+                        "outside are rejected by the schema."
                     ),
                     required=False,
                     default=DEFAULT_NUM_QUESTIONS,
@@ -2577,11 +2897,14 @@ class ReviewGenerateTool(BaseTool):
             payload["instruction"] = (
                 "The generation failed and no pack was stored. Report the "
                 "error to the learner and do not retry the same call "
-                "unchanged. If the error says a pack already exists, the "
-                "existing pack was left untouched: ask whether to keep it or "
-                "replace it, and pass replace=true only on explicit "
-                "confirmation; otherwise retry at most once with fewer "
-                "questions or choice-only question types."
+                "unchanged. When the error lists gate details, use the field "
+                "path in each detail (for example items.[2].stem) to locate "
+                "the offending content; a ____ placeholder inside math must "
+                "be written as \\underline{\\hspace{2em}}. If the error says "
+                "a pack already exists, the existing pack was left untouched: "
+                "ask whether to keep it or replace it, and pass replace=true "
+                "only on explicit confirmation; otherwise retry at most once "
+                "with fewer questions or choice-only question types."
             )
         else:
             payload["instruction"] = (
@@ -2832,6 +3155,7 @@ __all__ = [
     "REVIEW_AGENT_TOOL_NAMES",
     "ReviewAttemptTool",
     "ReviewBookFiguresTool",
+    "ReviewDueTool",
     "ReviewExportLinkTool",
     "ReviewExportTreeTool",
     "ReviewGenerateTool",

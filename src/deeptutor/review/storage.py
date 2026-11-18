@@ -21,7 +21,7 @@ import tempfile
 import threading
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -30,7 +30,8 @@ from deeptutor.learning.models import RepetitionState
 
 from deeptutor.review.models import ReviewSpec, canonical_json
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
+SQLITE_TIMEOUT_SECONDS = 5.0
 MAX_EVENTS_PER_CONCEPT = 10_000
 #: An unfinished session older than this is closed automatically. Chat-only
 #: clients have no "complete session" command, and a sitting that spans weeks
@@ -77,6 +78,10 @@ class ReviewStoreError(RuntimeError):
 
 
 class ReviewStoreIOError(ReviewStoreError):
+    pass
+
+
+class ReadOnlyStoreUnavailable(ReviewStoreIOError):
     pass
 
 
@@ -188,10 +193,17 @@ def _row_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
 
 
 class ReviewStore:
-    def __init__(self, home: str | Path | None = None) -> None:
+    def __init__(self, home: str | Path | None = None, *, read_only: bool = False) -> None:
         self.home = review_home(home)
-        self.home.mkdir(parents=True, exist_ok=True)
+        self.read_only = read_only
         self.db_path = self.home / "review.sqlite3"
+        if read_only:
+            if not self.db_path.is_file():
+                raise ReadOnlyStoreUnavailable("review database is missing")
+            if self._needs_migration():
+                raise ReadOnlyStoreUnavailable("review database needs a schema migration")
+            return
+        self.home.mkdir(parents=True, exist_ok=True)
         # Checking the schema version is read-only. Re-running migrations on
         # every request would take the single SQLite write lock just to read.
         if self._needs_migration():
@@ -201,36 +213,66 @@ class ReviewStore:
         if not self.db_path.exists():
             return True
         try:
-            from urllib.parse import quote
+            with self._read_connection() as conn:
+                return self._schema_version(conn) != SCHEMA_VERSION
+        except sqlite3.Error as exc:
+            raise ReviewStoreIOError("review store schema could not be read") from exc
 
-            uri = "file:" + quote(self.db_path.as_posix(), safe="/:") + "?mode=ro"
-            conn = sqlite3.connect(uri, uri=True, timeout=2.0)
-            try:
-                row = conn.execute(
-                    "SELECT MAX(version) AS version FROM review_schema_migrations"
-                ).fetchone()
-            finally:
-                conn.close()
-            return row is None or row[0] != SCHEMA_VERSION
-        except sqlite3.Error:
-            # A missing/old schema table is a migration, not a request failure.
-            return True
+    @staticmethod
+    def _schema_version(conn: sqlite3.Connection) -> int | None:
+        migration_table = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='review_schema_migrations'"
+        ).fetchone()
+        if migration_table is None:
+            return None
+        (version,) = conn.execute("SELECT MAX(version) FROM review_schema_migrations").fetchone()
+        if version is not None and version > SCHEMA_VERSION:
+            raise ReviewStoreError(
+                f"review database schema {version} is newer than this package "
+                f"({SCHEMA_VERSION}); refusing to downgrade"
+            )
+        return version
 
     # -- connection ---------------------------------------------------------
     @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(self.db_path, timeout=10.0, isolation_level=None)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute("PRAGMA foreign_keys=ON")
-        # Make INSERT OR REPLACE fire the BEFORE DELETE trigger too, so the
-        # append-only guarantee cannot be bypassed by a REPLACE conflict.
-        conn.execute("PRAGMA recursive_triggers=ON")
-        try:
+    def _read_connection(self) -> Iterator[sqlite3.Connection]:
+        with closing(sqlite3.connect(
+            self.db_path.as_uri() + "?mode=ro", uri=True, timeout=SQLITE_TIMEOUT_SECONDS
+        )) as conn:
+            conn.row_factory = sqlite3.Row
             yield conn
-        finally:
-            conn.close()
+
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        if self.read_only:
+            with self._read_connection() as conn:
+                yield conn
+            return
+        with closing(sqlite3.connect(
+            self.db_path, timeout=SQLITE_TIMEOUT_SECONDS, isolation_level=None
+        )) as conn:
+            conn.row_factory = sqlite3.Row
+            self._enable_wal(conn)
+            conn.execute("PRAGMA foreign_keys=ON")
+            conn.execute("PRAGMA recursive_triggers=ON")
+            yield conn
+
+    @staticmethod
+    def _enable_wal(conn: sqlite3.Connection) -> None:
+        deadline = time.monotonic() + SQLITE_TIMEOUT_SECONDS
+        while True:
+            try:
+                if conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal":
+                    return
+                conn.execute("PRAGMA journal_mode=WAL").fetchone()
+                return
+            except sqlite3.OperationalError as exc:
+                if (
+                    exc.sqlite_errorcode not in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}
+                    or time.monotonic() >= deadline
+                ):
+                    raise
+                time.sleep(0.02)
 
     @contextmanager
     def _transaction(self) -> Iterator[sqlite3.Connection]:
@@ -255,9 +297,11 @@ class ReviewStore:
             ) from exc
 
     def _migrate_locked(self) -> None:
-        with self._connect() as conn:
-            conn.executescript(
-                """
+        with closing(sqlite3.connect(self.db_path, timeout=SQLITE_TIMEOUT_SECONDS)) as conn, conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if self._schema_version(conn) == SCHEMA_VERSION:
+                return
+            ddl = """
                 CREATE TABLE IF NOT EXISTS review_schema_migrations (
                     version INTEGER PRIMARY KEY,
                     applied_at REAL NOT NULL
@@ -398,12 +442,17 @@ class ReviewStore:
                     SELECT RAISE(ABORT, 'review_events is append-only');
                 END;
                 """
-            )
+            statement = ""
+            for line in ddl.splitlines(keepends=True):
+                statement += line
+                if sqlite3.complete_statement(statement):
+                    conn.execute(statement)
+                    statement = ""
             # v3 columns: hint usage and learner confidence ride on the event
             # row. ALTER TABLE keeps existing databases readable; the check
             # makes the migration idempotent.
             columns = {
-                str(row["name"])
+                str(row[1])
                 for row in conn.execute("PRAGMA table_info(review_events)")
             }
             if "hints_used" not in columns:
@@ -412,14 +461,13 @@ class ReviewStore:
                 )
             if "confidence" not in columns:
                 conn.execute("ALTER TABLE review_events ADD COLUMN confidence REAL")
-            row = conn.execute(
-                "SELECT MAX(version) AS version FROM review_schema_migrations"
-            ).fetchone()
-            if row is not None and row["version"] is not None and int(row["version"]) > SCHEMA_VERSION:
-                raise ReviewStoreError(
-                    f"review database schema {row['version']} is newer than this package "
-                    f"({SCHEMA_VERSION}); refusing to downgrade"
-                )
+            # v5: the learner's own words behind the rating. Nullable on
+            # purpose — older events have none, and a tool call that omits it
+            # is not "empty", it is "not recorded". The column makes the
+            # "never grade for the learner" rule auditable after the fact
+            # instead of only promised in the prompt.
+            if "learner_quote" not in columns:
+                conn.execute("ALTER TABLE review_events ADD COLUMN learner_quote TEXT")
             conn.execute(
                 "INSERT OR IGNORE INTO review_schema_migrations (version, applied_at) VALUES (?, ?)",
                 (SCHEMA_VERSION, time.time()),
@@ -739,6 +787,7 @@ class ReviewStore:
         transition: TransitionFn,
         hints_used: int = 0,
         confidence: float | None = None,
+        learner_quote: str | None = None,
     ) -> tuple[dict[str, Any], bool]:
         """Append one event and advance the materialized state atomically.
 
@@ -794,8 +843,8 @@ class ReviewStore:
                 "event_id, submission_id, spec_id, item_id, concept_key, session_id, ts, "
                 "rating, result, quality, elapsed_ms, scheduled_interval_days, "
                 "predicted_retrievability, source, app_version, schema_version, payload_hash, "
-                "hints_used, confidence"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "hints_used, confidence, learner_quote"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     event_id,
                     submission_id,
@@ -816,6 +865,7 @@ class ReviewStore:
                     payload_hash,
                     max(0, int(hints_used)),
                     confidence,
+                    learner_quote,
                 ),
             )
 

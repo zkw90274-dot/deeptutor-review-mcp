@@ -260,11 +260,9 @@ def test_http_auth_reads_the_token_from_the_environment(
     assert accepted.status_code == 200, accepted.text
 
 
-def test_an_explicit_empty_token_disables_environment_auth(
+def test_an_explicit_empty_token_is_invalid_with_environment_auth(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv(AUTH_TOKEN_ENV, "env-secret")
-    app = create_http_app(build_server(), auth_token="")
-    with TestClient(app) as client:
-        response = client.post("/mcp", json=INITIALIZE, headers=HEADERS)
-    assert response.status_code == 200, response.text
+    with pytest.raises(ValueError, match=AUTH_TOKEN_ENV):
+        create_http_app(build_server(), auth_token="")

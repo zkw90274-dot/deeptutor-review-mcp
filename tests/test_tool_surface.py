@@ -55,4 +55,6 @@ def test_check_reports_ready(capsys) -> None:
     assert _check() == 0
     out = capsys.readouterr().out
     assert "module gate       : ok" in out
-    assert "mcp tools         : 10" in out
+    assert out.count("mcp tools         : ") == 1
+    assert f"mcp tools         : {len(TOOL_CLASSES)}" in out
+    assert len(TOOL_CLASSES) == 11

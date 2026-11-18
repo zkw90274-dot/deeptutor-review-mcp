@@ -9,7 +9,14 @@ import pytest
 
 from deeptutor.learning.models import RepetitionState
 
-from deeptutor.review.export import _needs_mathjax, _payload, _safe_json, build_html
+from deeptutor.review.export import (
+    _needs_mathjax,
+    _payload,
+    _safe_json,
+    build_html,
+    normalize_math_placeholders,
+    normalize_prose_math,
+)
 from deeptutor.review.fixture import build_fixture_spec
 from deeptutor.review.models import ReviewSpec
 from deeptutor.review.qa import run_gates
@@ -80,6 +87,81 @@ def test_g3_ignores_dollar_signs_inside_fenced_code() -> None:
     spec = ReviewSpec.model_validate(payload)
     report = run_gates(spec)
     assert report.passed, report
+
+
+def test_math_placeholder_runs_become_visible_blanks() -> None:
+    assert (
+        normalize_math_placeholders(r"$$\Omega=____$$")
+        == r"$$\Omega=\underline{\hspace{2em}}$$"
+    )
+
+
+def test_single_subscripts_and_fenced_code_are_untouched() -> None:
+    assert normalize_math_placeholders(r"$x_1 + x_2$") == r"$x_1 + x_2$"
+    fenced = "```\n$x=____$\n```"
+    assert normalize_math_placeholders(fenced) == fenced
+
+
+def test_math_placeholder_normalisation_is_idempotent() -> None:
+    once = normalize_math_placeholders(r"$a=____$")
+    assert normalize_math_placeholders(once) == once
+
+
+def test_bare_tex_prose_fields_get_delimiters() -> None:
+    assert normalize_prose_math(r"H(j\omega)") == r"$H(j\omega)$"
+    assert (
+        normalize_prose_math(r"f_c = \frac{1}{2\pi RC}", pure_math_only=True)
+        == r"$f_c = \frac{1}{2\pi RC}$"
+    )
+
+
+def test_bare_tex_rule_skips_paths_and_chinese_prose() -> None:
+    assert normalize_prose_math(r"C:\Users") == r"C:\Users"
+    prose = r"截止频率是 f_c = \frac{1}{2\pi RC}"
+    assert normalize_prose_math(prose, pure_math_only=True) == prose
+    assert normalize_prose_math(r"$H(j\omega)$") == r"$H(j\omega)$"
+
+
+def test_export_payload_normalises_render_copy_only() -> None:
+    payload = build_fixture_spec().model_dump(mode="json")
+    payload["content_hash"] = ""
+    flashcard = next(item for item in payload["items"] if item["id"] == "item-quality-flashcard")
+    flashcard["stem"] = r"求 $$Q=____$$ 的值"
+    flashcard["answer"]["text"] = r"f_c = \frac{1}{2\pi RC}"
+    payload["concepts"][0]["formulas"][0]["variables"] = {r"H(j\omega)": "频率响应"}
+    spec = ReviewSpec.model_validate(payload)
+    report = run_gates(spec)
+    assert report.passed, report.model_dump()
+
+    states = {
+        concept.id: RepetitionState(next_review_at=NOW) for concept in spec.concepts
+    }
+    data = _payload(spec, states, now=NOW, include_snapshot=False, quality=report)
+
+    item_payload = next(
+        block["item"]
+        for block in data["sections"][0]["blocks"]
+        if block.get("kind") == "item" and block["item"]["id"] == flashcard["id"]
+    )
+    assert "____" not in item_payload["stem"]
+    assert r"\underline{\hspace{2em}}" in item_payload["stem"]
+    assert item_payload["answer_display"] == r"$f_c = \frac{1}{2\pi RC}$"
+    assert "$H(j\\omega)$" in data["concepts"][spec.concepts[0].id]["formulas"][0]["variables"]
+    # The correction choices reuse the answer text; they are rendered by the
+    # same rich-text path, so they need the same wrapping.
+    assert any(
+        option["text"] == r"$f_c = \frac{1}{2\pi RC}$"
+        for option in item_payload["correction"]["options"]
+    )
+    # G11 is generator guidance with internal paths, not a learner caveat.
+    assert not any(
+        warning.startswith("G11-bare-tex:") for warning in data["quality"]["warnings"]
+    )
+
+    # The stored spec is untouched: only the rendered copy is normalised.
+    stored_item = next(item for item in spec.items if item.id == flashcard["id"])
+    assert "____" in stored_item.stem
+    assert stored_item.answer.text == r"f_c = \frac{1}{2\pi RC}"
 
 
 def test_export_progress_counts_concepts_not_items() -> None:
@@ -158,6 +240,12 @@ def _plain_spec() -> ReviewSpec:
     payload["content_hash"] = ""
     for concept in payload["concepts"]:
         concept["formulas"] = []
+    # The fixture's flashcard answer is bare TeX; the exporter now wraps such
+    # answers in $...$ (a math marker), so a genuinely math-free page needs
+    # plain prose here as well.
+    for item in payload["items"]:
+        if item["answer"]["text"]:
+            item["answer"]["text"] = "品质因数 Q 的定义式"
     return ReviewSpec.model_validate(payload)
 
 
@@ -472,12 +560,15 @@ def test_narrow_screen_figures_scroll_instead_of_shrinking(
     # unreadable. Narrow screens must scroll the figure instead of shrinking it.
     template = _review_template()
     narrow = _media_block(template, "@media (max-width:640px)")
-    assert ".figure{overflow-x:auto}" in narrow
+    # The rule now also makes the scroll affordance visible; match the
+    # behaviour, not the exact declaration list.
+    assert ".figure{overflow-x:auto;" in narrow
+    assert "scrollbar-width:thin" in narrow
     assert ".figure svg{min-width:520px}" in narrow
 
     spec = _grade(service)
     html = service.export(spec.id, now=NOW)
-    assert ".figure{overflow-x:auto}" in html
+    assert ".figure{overflow-x:auto;" in html
     assert ".figure svg{min-width:520px}" in html
 
 

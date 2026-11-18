@@ -1,4 +1,4 @@
-"""MCP server for the ten Review Studio agent tools.
+"""MCP server for the Review Studio agent tools.
 
 Phase 29 exposed the review tools through the core tool protocol
 (:mod:`deeptutor.review.agent_tools`), which only a chat mounted inside this
@@ -19,7 +19,7 @@ Two transports, one server:
 The protocol layer is the SDK's low-level :class:`mcp.server.lowlevel.Server`
 rather than ``FastMCP``. ``FastMCP`` derives an input schema from a Python
 signature, which would be a second, drift-prone copy of the parameter list:
-the ten tools already publish theirs through ``get_definition()``. Registering
+the tools already publish theirs through ``get_definition()``. Registering
 those definitions directly keeps name, description and JSON Schema generated
 from the one source the tests compare against.
 
@@ -49,6 +49,7 @@ from deeptutor.review import capabilities
 from deeptutor.review.agent_tools import (
     ReviewAttemptTool,
     ReviewBookFiguresTool,
+    ReviewDueTool,
     ReviewExportLinkTool,
     ReviewExportTreeTool,
     ReviewGenerateTool,
@@ -81,6 +82,7 @@ TRANSPORTS = ("stdio", "streamable-http")
 #: ``DEEPTUTOR_REVIEW_HOME``), so a single instance per name is enough.
 TOOL_CLASSES: dict[str, type[BaseTool]] = {
     "review_specs": ReviewSpecsTool,
+    "review_due": ReviewDueTool,
     "review_today": ReviewTodayTool,
     "review_attempt": ReviewAttemptTool,
     "review_weakness": ReviewWeaknessTool,
@@ -91,6 +93,120 @@ TOOL_CLASSES: dict[str, type[BaseTool]] = {
     "review_hint": ReviewHintTool,
     "review_plan": ReviewPlanTool,
 }
+
+#: MCP ``ToolAnnotations`` per tool, so a client can auto-approve reads and
+#: warn before a write instead of asking the same question for both. They are
+#: *hints*, not enforcement: the authoritative switch stays
+#: :mod:`deeptutor.review.capabilities` (``--read-only`` and friends).
+#:
+#: Entries that deliberately contradict the tool's name:
+#:
+#: * ``review_today`` reads like a query but in normal mode reuses/creates a
+#:   session and records views, so it is not read-only.
+#: * ``review_attempt`` is only idempotent when the caller passes
+#:   ``submission_id``; without it every call mints a new event. A client that
+#:   auto-retries on timeout would double-record the learner's history, so the
+#:   hint stays ``False`` (the tool description still documents the
+#:   ``submission_id`` retry contract).
+#: * ``review_export_tree`` writes files and deletes the stale ``.html`` of the
+#:   folders it touches, so it is destructive. Its output is byte-stable for
+#:   the same store state (the page timestamp lives only in the opt-in
+#:   snapshot), so ``idempotentHint`` stays true.
+#: * ``review_generate`` is destructive: ``replace=True`` overwrites the pack
+#:   with the same deterministic id and passes ``allow_history_rewrite=True``,
+#:   so old events end up pointing at replaced content.
+#:
+#: ``openWorldHint`` means "may talk to something outside this deployment":
+#: ``review_generate`` calls the configured model, and ``review_plan`` mirrors
+#: onto the calendar / task board / Co-Writer.
+TOOL_ANNOTATIONS: dict[str, dict[str, bool]] = {
+    "review_specs": {
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+    "review_due": {
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+    "review_today": {
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+    "review_attempt": {
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        # Conditional idempotency is not idempotency: without submission_id
+        # every call appends a new event and moves the schedule.
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+    "review_weakness": {
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+    "review_export_link": {
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+    "review_export_tree": {
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+    "review_book_figures": {
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+    "review_generate": {
+        "readOnlyHint": False,
+        # replace=True overwrites the pack with the same deterministic id and
+        # rewrites history protection, so this is an overwrite, not append-only.
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
+    "review_hint": {
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+    "review_plan": {
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
+}
+
+
+def _annotations(name: str) -> types.ToolAnnotations:
+    """The annotation block for one tool; a missing entry is a build error.
+
+    Raising here (rather than silently omitting annotations) makes "added a
+    tool, forgot its hints" fail at server construction instead of shipping a
+    tool every client treats as unknown-risk.
+    """
+    try:
+        hints = TOOL_ANNOTATIONS[name]
+    except KeyError:  # pragma: no cover - tests assert the key sets match
+        raise RuntimeError(
+            f"no MCP annotations registered for tool {name!r}; add it to TOOL_ANNOTATIONS"
+        ) from None
+    return types.ToolAnnotations(**hints)
 
 
 def _package_version() -> str:
@@ -175,32 +291,32 @@ def _input_schema(definition: ToolDefinition) -> dict[str, Any]:
 #: git when it lives under the ignored data directory.
 INSTRUCTIONS = """Review Studio - spaced review for DeepTutor
 
-The ten tools share one local review store: DEEPTUTOR_REVIEW_HOME when set,
-otherwise <workspace>/review. The web UI, offline export and these tools read
-the same store.
+All tools share one local store: DEEPTUTOR_REVIEW_HOME when set, otherwise
+<workspace>/review; the web UI and offline export read the same store.
 
-Session: review_specs -> review_today -> review_hint (only when stuck) ->
-review_attempt -> next item. review_generate creates a pack from one
-knowledge-base chapter; review_plan manages multi-week plans;
+Flow: review_specs (what exists) -> review_due (what has work today, across
+packs) -> review_today (start one pack) -> review_hint (only when stuck) ->
+review_attempt -> next item. review_generate builds a pack from one
+knowledge-base chapter; review_plan schedules multi-week study;
 review_export_link returns one self-contained HTML page; review_export_tree
-writes the whole collection and returns index.html.
+writes the whole collection.
+
+Prefer review_due over review_today for several packs: review_today opens or
+reuses a session and records what was shown; review_due records nothing.
 
 Non-negotiable: never grade for the learner (transcribe their own again /
-hard / good only); never reveal an answer or an option before review_attempt;
+hard / good only); never reveal an answer or option before review_attempt;
 hints come only from review_hint; a freshly generated pack has no due cards
 until its first attempt. Do not paste pack contents into the chat.
 
 review_generate's chapter must match a name derived from the knowledge-base
-file layout (第N章 / 第N讲 / chN / 实验N_xxx); anything else returns
-"chapter ... not found". Plan tasks are named after the source material, never
-equal-time slices; follow review_plan and the review skill for the exact
-wording.
+file layout (第N章 / 第N讲 / chN / 实验N_xxx), else "chapter ... not found".
 
-The full living-book, plan-naming, visual, performance and figure rules are in
-the review skill (docs/skill/SKILL.md in the deeptutor-review-mcp repository).
-Never hand-edit a built book's HTML; rebuild it from its source.
+The living-book, plan-naming, visual and figure rules are in the review skill
+(docs/skill/SKILL.md in the deeptutor-review-mcp repository). Never hand-edit
+a built book's HTML; rebuild it from its source.
 
-Operators may append deployment-specific notes through mcp-context.md."""
+Operators may append deployment notes through mcp-context.md."""
 
 #: Optional per-deployment context appended to INSTRUCTIONS. A public wheel
 #: stays generic; an operator can add local material (directory layout, course
@@ -262,6 +378,7 @@ def build_server() -> Server[Any, Any]:
                 name=definition.name,
                 description=definition.description,
                 inputSchema=_input_schema(definition),
+                annotations=_annotations(definition.name),
             )
             for definition in (tool.get_definition() for tool in tools.values())
         ]
@@ -281,6 +398,16 @@ def build_server() -> Server[Any, Any]:
         )
 
     return server
+
+
+def _http_token(configured: str | None = None) -> str | None:
+    value = os.environ.get(AUTH_TOKEN_ENV) if configured is None else configured
+    if value is None:
+        return None
+    token = value.strip()
+    if not token:
+        raise ValueError(f"{AUTH_TOKEN_ENV} is set but blank. Set a token or unset it for loopback HTTP.")
+    return token
 
 
 def create_http_app(
@@ -308,16 +435,16 @@ def create_http_app(
     from starlette.routing import Route
     from starlette.types import Receive, Scope, Send
 
-    token = (
-        auth_token if auth_token is not None else os.environ.get(AUTH_TOKEN_ENV, "")
-    ).strip()
+    token = _http_token(auth_token)
+    if token is None and not _is_loopback(host):
+        raise ValueError(f"refusing to serve on {host} without {AUTH_TOKEN_ENV}")
 
     def _authorized(scope: Scope) -> bool:
         headers = dict(scope.get("headers") or [])
         raw = headers.get(b"authorization", b"").decode("latin-1")
         scheme, _, presented = raw.partition(" ")
-        return scheme.lower() == "bearer" and bool(token) and hmac.compare_digest(
-            presented.strip(), token
+        return scheme.lower() == "bearer" and token is not None and hmac.compare_digest(
+            presented.strip().encode("latin-1"), token.encode("utf-8")
         )
 
     names = {"127.0.0.1", "localhost", "[::1]"}
@@ -462,17 +589,16 @@ def main(argv: list[str] | None = None) -> int:
     """CLI entry point: stdio by default, Streamable HTTP when asked."""
     args = _parse_args(argv)
     _configure_capabilities(args)
+    if args.transport == "streamable-http":
+        try:
+            token = _http_token()
+            if token is None and not _is_loopback(args.host):
+                raise ValueError(f"refusing to serve on {args.host} without {AUTH_TOKEN_ENV}")
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
     if args.check:
         return _check()
-
-    if args.transport == "streamable-http" and not _is_loopback(args.host):
-        if not os.environ.get(AUTH_TOKEN_ENV, "").strip():
-            print(
-                f"refusing to serve on {args.host} without {AUTH_TOKEN_ENV}; "
-                "bind 127.0.0.1 or set a bearer token.",
-                file=sys.stderr,
-            )
-            return 2
 
     caps = capabilities.current()
     logger.info(

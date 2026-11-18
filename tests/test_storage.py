@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import subprocess
+import sys
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -451,6 +454,7 @@ def test_open_session_is_atomic_across_store_instances(store: ReviewStore) -> No
     for thread in threads:
         thread.join()
 
+    assert len(results) == len(threads)
     sessions = {session_id for session_id, _ in results}
     assert len(sessions) == 1
     assert sum(1 for _, created in results if created) == 1
@@ -486,14 +490,78 @@ def test_newer_database_schema_is_refused(tmp_path: Path) -> None:
     store = ReviewStore(home)
     conn = sqlite3.connect(store.db_path)
     try:
+        conn.execute("ALTER TABLE review_events DROP COLUMN learner_quote")
         conn.execute(
             "INSERT INTO review_schema_migrations (version, applied_at) VALUES (999, 0)"
         )
         conn.commit()
+        before = list(conn.iterdump())
     finally:
         conn.close()
-    with pytest.raises(ReviewStoreError):
+    with pytest.raises(ReviewStoreError, match="newer"):
         ReviewStore(home)
+    with closing(sqlite3.connect(store.db_path)) as conn:
+        assert list(conn.iterdump()) == before
+
+
+def test_v4_migration_is_serialized_across_processes(tmp_path: Path) -> None:
+    store = ReviewStore(tmp_path / "review")
+    with closing(sqlite3.connect(store.db_path)) as conn, conn:
+        conn.execute("ALTER TABLE review_events DROP COLUMN learner_quote")
+        conn.execute("UPDATE review_schema_migrations SET version = 4")
+
+    worker = """
+import sys
+import time
+from pathlib import Path
+
+import deeptutor
+deeptutor.__path__.insert(0, sys.argv[1])
+from deeptutor.review.storage import ReviewStore
+
+signal = Path(sys.argv[3])
+original_probe = ReviewStore._needs_migration
+
+def synchronized_probe(store):
+    needs_migration = original_probe(store)
+    signal.with_suffix('.ready').touch()
+    deadline = time.monotonic() + 15
+    while not signal.with_name('start').exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert signal.with_name('start').exists()
+    return needs_migration
+
+ReviewStore._needs_migration = synchronized_probe
+ReviewStore(sys.argv[2])
+"""
+    import time
+
+    source = Path(__file__).resolve().parents[1] / "src" / "deeptutor"
+    processes = [
+        subprocess.Popen(
+            [sys.executable, "-B", "-c", worker, str(source), str(store.home), str(tmp_path / f"worker-{index}")],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        for index in range(6)
+    ]
+    try:
+        deadline = time.monotonic() + 12
+        while len(list(tmp_path.glob("*.ready"))) < len(processes) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert len(list(tmp_path.glob("*.ready"))) == len(processes)
+        (tmp_path / "start").touch()
+        results = [process.communicate(timeout=15) for process in processes]
+        assert [process.returncode for process in processes] == [0] * len(processes), results
+    finally:
+        for process in processes:
+            if process.poll() is None:
+                process.kill()
+                process.communicate()
+    with closing(sqlite3.connect(store.db_path)) as conn:
+        assert conn.execute("SELECT version FROM review_schema_migrations ORDER BY version").fetchall() == [(4,), (5,)]
+        assert [column[1] for column in conn.execute("PRAGMA table_info(review_events)")].count("learner_quote") == 1
+        assert conn.execute("PRAGMA integrity_check").fetchone() == ("ok",)
 
 
 def test_v2_database_migrates_in_place_without_losing_events(tmp_path: Path) -> None:

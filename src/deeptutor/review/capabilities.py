@@ -79,7 +79,8 @@ def disabled(tool: str) -> str | None:
         return None
     return (
         f"{tool} is disabled in this deployment ({action} is off). "
-        "Use the read-only tools instead: review_specs, review_today, "
-        "review_hint, review_weakness, review_export_link, review_book_figures. "
+        "Use the read-only tools instead: review_specs, review_due, "
+        "review_today, review_hint, review_weakness, review_export_link, "
+        "review_book_figures. "
         "The operator can enable it with the server's launch flags."
     )

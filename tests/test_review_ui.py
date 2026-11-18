@@ -32,6 +32,7 @@ AGENT_TOOLS_PATH = (
 )
 EXPECTED_TOOLS = {
     "review_specs": "ReviewSpecsTool",
+    "review_due": "ReviewDueTool",
     "review_today": "ReviewTodayTool",
     "review_attempt": "ReviewAttemptTool",
     "review_weakness": "ReviewWeaknessTool",
@@ -65,9 +66,17 @@ def test_manifest_is_valid_json_with_navigation_and_tools() -> None:
 
 def test_manifest_tool_orders_are_unique_and_in_range() -> None:
     manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
-    orders = [entry["order"] for entry in manifest["tools"].values()]
+    tools = manifest["tools"]
+    orders = [entry["order"] for entry in tools.values()]
     assert len(orders) == len(set(orders))
-    assert all(60 <= order <= 68 for order in orders)
+    # 60-68 is the block the Review module reserved for itself. ``review_due``
+    # was added later and every slot in that block (and every slot below 103)
+    # is already claimed by another module, so it takes the nearest free one:
+    # the sort key only needs to be unique within this manifest.
+    assert all(60 <= order <= 68 for name, order in
+               ((name, entry["order"]) for name, entry in tools.items())
+               if name != "review_due")
+    assert tools["review_due"]["order"] == 103
 
 
 def test_agent_tools_classes_exist_once_delivered() -> None:

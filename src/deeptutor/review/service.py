@@ -59,6 +59,7 @@ from deeptutor.review.storage import (
     ReviewStore,
     SessionNotFound,
     SpecIntegrityError,
+    SpecNotFound,
     StateTransition,
     SubmissionConflict,
 )
@@ -75,6 +76,11 @@ MAX_METRIC_EVENTS = 50_000
 #: integers as signed 64-bit; an unbounded model-supplied number would raise
 #: ``OverflowError`` inside the write and surface as a 500.
 MAX_ELAPSED_MS = 86_400_000
+
+#: Upper bound for the learner's own wording behind a rating. A quote is
+#: evidence, not content: it is clipped so a model cannot turn the event row
+#: into a transcript.
+MAX_LEARNER_QUOTE_CHARS = 500
 
 #: Per-spec locks around "find the open session or create one". The lookup and
 #: the insert are separate transactions, so two concurrent ``today`` calls can
@@ -114,6 +120,10 @@ class AttemptInput:
     #: Learner's own confidence in their answer, 0-100, when they volunteer
     #: one. Metadata for calibration only; never changes the rating.
     confidence: float | None = None
+    #: The learner's own words for the rating ("会，但想了很久"). Recorded so
+    #: "the rating came from the learner" is auditable after the fact instead
+    #: of being a prompt-only promise. Never used by the scheduler.
+    learner_quote: str | None = None
 
 
 def _resolve_calibration(
@@ -232,6 +242,7 @@ def _attempt_response(
         "quality": event["quality"],
         "hints_used": int(event.get("hints_used") or 0),
         "confidence": event.get("confidence"),
+        "learner_quote": event.get("learner_quote"),
         "correct": correct,
         "answer": _answer_text(item),
         "explanation": item.explanation,
@@ -403,6 +414,89 @@ class ReviewService:
             states=states,
             allow_recovery=allow_recovery,
         )
+
+    def due_overview(
+        self,
+        *,
+        subject: str | None = None,
+        now: float | None = None,
+    ) -> dict[str, Any]:
+        """Cross-pack due summary; never opens a session and never records a view.
+
+        ``review_specs`` answers "what exists" and ``review_today`` answers
+        "what is in *this* pack's queue". The highest-frequency question —
+        "what should I review today?" — therefore used to cost one
+        ``review_today`` call per pack, and in normal mode every one of those
+        calls opens or reuses a session and records views (measured on the
+        43-pack library: 43 calls, 42 new sessions, 223 views). This method
+        runs the same queue read-only and aggregates.
+
+        ``queued`` is exactly what ``review_today`` would present for that pack
+        today (due review + new material, capped by the queue budget). ``due``
+        and ``new`` are the queue's own split; a pack in recovery mode
+        deliberately reports a smaller ``due`` (RS-1005: a returning learner is
+        not shown a backlog number), and ``recovery`` says so instead of
+        leaving the reader to guess why the numbers disagree.
+        """
+        moment = time.time() if now is None else now
+        needle = (subject or "").strip()
+        rows: list[dict[str, Any]] = []
+        totals = {"queued": 0, "due": 0, "new": 0, "repeat": 0, "estimated_minutes": 0}
+        for meta in self.store.list_specs():
+            spec_id = str(meta.get("spec_id") or "")
+            try:
+                spec = self.store.get_spec(spec_id)
+            except (SpecNotFound, SpecIntegrityError, ValidationError):
+                # One damaged pack must not hide the rest of the library; the
+                # same policy ``spec_meta`` applies.
+                continue
+            title = getattr(spec, "title", "") or ""
+            if needle and needle not in title:
+                continue
+            states = states_for_spec(spec, self.store, now=moment)
+            today = build_today(
+                spec,
+                self.store,
+                now=moment,
+                session_id="",
+                states=states,
+                record_views=False,
+            )
+            queued = len(today.get("items") or [])
+            if not queued:
+                continue
+            counts = today.get("counts") or {}
+            last = self.store.last_activity_ts(spec.id)
+            # Imported lazily: ``export_tree`` imports this module at load
+            # time, so a module-level import here would be circular.
+            from deeptutor.review.export_tree import split_pack_title
+
+            pack_subject, _chapter = split_pack_title(title)
+            row = {
+                "spec_id": spec.id,
+                "title": title,
+                "subject": pack_subject,
+                "queued": queued,
+                "due": int(counts.get("due") or 0),
+                "new": int(counts.get("new") or 0),
+                "repeat": int(counts.get("repeat") or 0),
+                "recovery": bool((today.get("recovery") or {}).get("active")),
+                "estimated_minutes": int(today.get("estimated_minutes") or 0),
+                "last_reviewed_at": (
+                    iso_from_timestamp(last, spec.plan.timezone) if last is not None else None
+                ),
+            }
+            rows.append(row)
+            for key in ("queued", "due", "new", "repeat", "estimated_minutes"):
+                totals[key] += row[key]
+        rows.sort(key=lambda row: (-row["due"], -row["queued"], row["spec_id"]))
+        return {
+            "generated_at": iso_from_timestamp(moment),
+            "subject": needle or None,
+            "count": len(rows),
+            "totals": totals,
+            "packs": rows,
+        }
 
     def weakness(
         self, spec_id: str, *, limit: int = 5, now: float | None = None
@@ -593,6 +687,11 @@ class ReviewService:
             raise ValueError(
                 f"elapsed_ms must be between 0 and {MAX_ELAPSED_MS}"
             )
+        learner_quote = request.learner_quote
+        if learner_quote is not None:
+            if not isinstance(learner_quote, str):
+                raise ValueError("learner_quote must be a string")
+            learner_quote = learner_quote.strip()[:MAX_LEARNER_QUOTE_CHARS] or None
         # Session is metadata, not identity: a client that retries without a
         # session id must still get the original event back. Hint usage and
         # confidence ARE identity: they change what the event means.
@@ -713,6 +812,7 @@ class ReviewService:
             transition=transition,
             hints_used=hints_used,
             confidence=confidence,
+            learner_quote=learner_quote,
         )
         return _attempt_response(
             self.store,

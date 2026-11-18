@@ -5,10 +5,19 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
+import pytest
+
 from deeptutor.review.agent_tools import ReviewExportTreeTool
-from deeptutor.review.export_tree import UNNAMED, export_tree, safe_component, split_pack_title
+from deeptutor.review.export_tree import (
+    UNNAMED,
+    build_index,
+    export_tree,
+    safe_component,
+    split_pack_title,
+)
 from deeptutor.review.fixture import build_fixture_spec
 from deeptutor.review.models import QualityReport
 from deeptutor.review.service import QualityGateFailed
@@ -89,14 +98,42 @@ def test_export_tree_classifies_by_subject(tmp_path: Path) -> None:
 
 def test_export_tree_removes_pages_of_renamed_chapters(tmp_path: Path) -> None:
     out = tmp_path / "packs"
+    original = _service()
+    original.store.specs["kb-1"].title = "高频 · 旧章名 复习包"
+    export_tree(original, out)
     stale = out / "高频" / "旧章名.html"
-    stale.parent.mkdir(parents=True)
-    stale.write_text("<html>old</html>", encoding="utf-8")
+    notes = stale.with_name("notes.html")
+    notes.write_text("personal", encoding="utf-8")
 
     summary = export_tree(_service(), out)
 
     assert not stale.exists()
+    assert notes.read_text(encoding="utf-8") == "personal"
     assert summary["stale_removed"] == ["高频/旧章名.html"]
+
+
+@pytest.mark.parametrize("relative", ["index.html", "高频/第2章_选频网络.html"])
+def test_export_preflight_preserves_unmanaged_collision(tmp_path: Path, relative: str) -> None:
+    target = tmp_path / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("personal", encoding="utf-8")
+    with pytest.raises(ValueError, match=relative):
+        export_tree(_service(), tmp_path)
+    assert list(tmp_path.rglob("*.html")) == [target]
+    assert target.read_text(encoding="utf-8") == "personal"
+
+
+def test_export_preserves_edited_pages_and_removes_retired_subjects(tmp_path: Path) -> None:
+    old_service = _service()
+    export_tree(old_service, tmp_path)
+    edited = tmp_path / "高频" / "第1章_绪论.html"
+    with edited.open("a", encoding="utf-8") as handle:
+        handle.write("personal edit")
+    del old_service.store.specs["kb-1"]
+    del old_service.store.specs["kb-3"]
+    summary = export_tree(old_service, tmp_path)
+    assert edited.read_text(encoding="utf-8").endswith("personal edit")
+    assert summary["stale_removed"] == ["微机/第1讲.html"]
 
 
 def test_export_tree_subject_filter_leaves_other_folders_alone(tmp_path: Path) -> None:
@@ -171,3 +208,40 @@ def test_tool_rejects_an_out_dir_outside_the_review_home(service, tmp_path: Path
     assert "outside the allowed roots" in payload["error"]
     assert "--allow-out-dir" in payload["instruction"]
     assert not outside.exists()
+
+
+def _entry(chapter: str, *, subject: str = "高频", items: int = 1) -> dict:
+    return {
+        "subject": subject,
+        "folder": subject,
+        "file": f"{chapter}.html",
+        "chapter": chapter,
+        "items": items,
+        "bytes": 1024,
+    }
+
+
+def test_build_index_is_byte_identical_without_now(tmp_path: Path) -> None:
+    entries = [_entry("第1章"), _entry("第2章")]
+    build_index(tmp_path, entries)
+    first = (tmp_path / "index.html").read_bytes()
+    build_index(tmp_path, entries)
+    assert (tmp_path / "index.html").read_bytes() == first
+    assert "导出于" not in first.decode("utf-8")
+
+
+def test_build_index_orders_chapters_naturally(tmp_path: Path) -> None:
+    build_index(
+        tmp_path,
+        [_entry("第10章_数字滤波器"), _entry("第2章_采样"), _entry("第1章_绪论")],
+    )
+    text = (tmp_path / "index.html").read_text(encoding="utf-8")
+    assert text.index("第1章_绪论") < text.index("第2章_采样") < text.index("第10章_数字滤波器")
+
+
+def test_build_index_accepts_an_explicit_timestamp(tmp_path: Path) -> None:
+    stamp = datetime(2026, 1, 1, 1, 1)
+    build_index(tmp_path, [_entry("第1章")], now=stamp)
+    assert "导出于 2026-01-01 01:01" in (tmp_path / "index.html").read_text(
+        encoding="utf-8"
+    )

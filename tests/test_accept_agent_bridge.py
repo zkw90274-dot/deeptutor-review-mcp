@@ -1,4 +1,4 @@
-"""The agent-tool acceptance bridge must keep covering the full ten-tool surface."""
+"""The agent-tool acceptance bridge must keep covering the full tool surface."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pathlib import Path
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "accept_agent_bridge.py"
 
 
-def test_agent_bridge_covers_all_ten_tools() -> None:
+def test_agent_bridge_covers_all_tools() -> None:
     env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
     completed = subprocess.run(
         [sys.executable, str(SCRIPT)],
@@ -25,11 +25,11 @@ def test_agent_bridge_covers_all_ten_tools() -> None:
     assert completed.returncode == 0, output
     from deeptutor.review.agent_tools import REVIEW_AGENT_TOOL_NAMES
 
-    assert len(REVIEW_AGENT_TOOL_NAMES) == 10
-    assert "ten tools named per contract" in output
+    assert len(REVIEW_AGENT_TOOL_NAMES) == 11
+    assert "every tool named per contract" in output
     assert "'review_hint': 3" in output
     assert "'review_generate': 7" in output
-    assert "13/13 steps passed" in output
+    assert "14/14 steps passed" in output
     # A renamed or dropped tool must break this test, not just the count.
     for name in REVIEW_AGENT_TOOL_NAMES:
         assert f"'{name}':" in output

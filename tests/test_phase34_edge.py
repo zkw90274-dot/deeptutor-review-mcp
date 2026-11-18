@@ -225,8 +225,9 @@ def test_v2_database_gains_v3_columns_without_losing_history(tmp_path: Path) -> 
     columns = _event_columns(store.db_path)
     assert "hints_used" in columns
     assert "confidence" in columns
-    assert _migration_version(store.db_path) == 4
-    assert SCHEMA_VERSION == 4
+    assert "learner_quote" in columns
+    assert _migration_version(store.db_path) == 5
+    assert SCHEMA_VERSION == 5
 
     events = store.events_for_spec("legacy-spec")
     assert len(events) == 1
@@ -236,6 +237,7 @@ def test_v2_database_gains_v3_columns_without_losing_history(tmp_path: Path) -> 
     assert event["rating"] == "good"
     assert event["hints_used"] == 0
     assert event["confidence"] is None
+    assert event["learner_quote"] is None
 
 
 def test_reopening_the_migrated_database_is_idempotent(tmp_path: Path) -> None:
@@ -245,8 +247,12 @@ def test_reopening_the_migrated_database_is_idempotent(tmp_path: Path) -> None:
     ReviewStore(home)
     reopened = ReviewStore(home)
 
-    assert _migration_version(reopened.db_path) == 4
-    assert _event_columns(reopened.db_path) >= {"hints_used", "confidence"}
+    assert _migration_version(reopened.db_path) == 5
+    assert _event_columns(reopened.db_path) >= {
+        "hints_used",
+        "confidence",
+        "learner_quote",
+    }
     assert len(reopened.events_for_spec("legacy-spec")) == 1
 
 
