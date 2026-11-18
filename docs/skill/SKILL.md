@@ -35,8 +35,8 @@ pack instead of consuming one.
 
 | Tool | Use it for | Parameters |
 |---|---|---|
-| `review_specs` | List the review packs available to this learner, with each pack's id, item and concept counts, and generation quality status. | None. |
-| `review_due` | Summarise what is queued today across every pack, read-only: per pack the queued/due/new counts, estimated minutes, recovery flag and last review time. Use it to answer "what should I review today?" or to pick a pack; it opens no session and records nothing, unlike `review_today`. It returns no question text. | optional `subject` (substring of the pack title). |
+| `review_specs` | List review packs with their IDs, item and concept counts, and generation quality status. | Optional `limit` (1–100, default 50), `offset` (default 0). |
+| `review_due` | Summarise today's queued, due and new items, estimated minutes, recovery flag and last review time per pack. The call is read-only and returns no question text. | Optional `subject` (substring of the pack title), `limit` (1–100, default 50), `offset` (default 0). |
 | `review_today` | Return today's queue for one pack: the budget, planned minutes, and each due item's kind, stem and options, with answers and explanations deliberately withheld. When the pack has an exam date, the payload carries an `exam` block (`days_left`, `mode`: sprint within 14 days, final_week within 3) you can mention to the learner. | `spec_id` (verbatim from `review_specs`). |
 | `review_attempt` | Record the learner's own self-assessment of one item and let the scheduler set its next review date. A `good` reported after any hint is stored as `hard`. | `spec_id`, `item_id` (both verbatim from `review_today`), `rating` (`again`, `hard`, or `good`), optional `session_id` (pass back the value from `review_today`), optional `submission_id` (idempotency key for retrying the same rating), optional `hints_used` (0-2, the number of hints you actually showed), optional `confidence` (0-100, only when the learner volunteers it, never invented). |
 | `review_hint` | Give the learner a graded hint for one item without revealing the answer: level 1 names the tested concept, level 2 restates its definition (and formula when the pack has one); when the pack has no definition, level 2 points at the definition to recall and the source material instead of repeating level 1. The text is derived deterministically from the pack and leak-checked against the answer and every option; if that check fails it falls back to source-chapter guidance. | `spec_id`, `item_id` (both verbatim from `review_today`), optional `level` (`1` or `2`, default `1`; offer 1 first). |
@@ -81,11 +81,12 @@ When the learner asks for review material that does not exist yet:
 
 ## Standard session flow
 
-1. Call `review_specs` first. Every other tool needs a `spec_id`, and only the
-   ids returned here exist.
+1. Call `review_specs` first to find the learner's `spec_id`. If the target pack
+   is absent and `next_offset` is present, pass it as `offset` for the next page.
 2. If the learner asks "what should I review today?" without naming a pack, call
-   `review_due` instead of `review_today` for each pack: it is read-only and
-   returns the queued counts across the library.
+   `review_due`. Its `totals` cover all matching packs. Use `next_offset` for
+   additional rows. The `omitted` count covers unreadable packs in the whole store.
+   If packs or review progress change between pages, restart from offset 0.
 3. If more than one pack fits, ask the learner which one; do not pick for them.
 4. Call `review_today` with that `spec_id`.
 5. Read **one** item's stem to the learner exactly as given, including its

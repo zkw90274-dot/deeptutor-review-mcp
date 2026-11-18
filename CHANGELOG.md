@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.7.3-r3
+
+- Paginate `review_specs` and `review_due`, with a default of 50 packs and a limit of 100 per page. Counts and due totals cover all matching packs.
+- Page pack metadata in SQLite and replay review evidence in batches of up to 256 events per concept. Due totals still scan the matching packs.
+- Reject unknown MCP tool arguments. Resolve the default `review_plan today` date in the plan's timezone.
+- Use build tag `3` in `deeptutor_review-1.7.3-3-py3-none-any.whl`. The installed package version stays `1.7.3` for the core module gate.
+
 ## v1.7.3-r2
 
 - Add `review_due`, a read-only summary across review packs, and tool annotations.

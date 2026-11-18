@@ -6,7 +6,9 @@ from deeptutor.learning.scheduler import SpacedRepetitionScheduler
 from deeptutor.review.adapter import (
     RATING_MAP,
     apply_rating,
+    evidence_for,
     initial_state,
+    knowledge_type_of,
     replay_state,
 )
 from deeptutor.review.fixture import build_fixture_spec
@@ -101,3 +103,19 @@ def test_replay_reconstructs_state() -> None:
     replayed = replay_state(concept, events, now=NOW, scheduler=engine)
     assert replayed.next_review_at == pytest.approx(state.next_review_at)
     assert replayed.stability == pytest.approx(state.stability)
+
+
+def test_streamed_replay_preserves_full_event_history() -> None:
+    concept = _concept("concept")
+    engine = SpacedRepetitionScheduler(desired_retention=0.85)
+    knowledge_type = knowledge_type_of(concept)
+    evidence = [
+        evidence_for(concept, ("again", "good", "hard")[index % 3], timestamp=NOW + index * DAY)
+        for index in range(600)
+    ]
+    expected = engine.replay(knowledge_type, evidence)
+    events = (
+        {"item_id": "", "session_id": "", "ts": event.timestamp, "result": event.result, "quality": event.quality}
+        for event in evidence
+    )
+    assert replay_state(concept, events, now=NOW, scheduler=engine) == expected

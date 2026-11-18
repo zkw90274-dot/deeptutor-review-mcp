@@ -28,16 +28,16 @@ pip install .        # 在本仓库根目录；不要用 -e
 
 ```bash
 # 在本仓库根目录
-python -m pip wheel . --no-deps --no-build-isolation -w dist
-python -m pip install --force-reinstall --no-deps dist/deeptutor_review-1.7.3-py3-none-any.whl
+python -m pip wheel . --no-deps -w dist
+python -m pip install --force-reinstall --no-deps dist/deeptutor_review-1.7.3-3-py3-none-any.whl
 ```
 
 ### 1.3 从已发布的包安装
 
-若 `deeptutor-review` 已发布到你可访问的索引（当前仓库不自带 PyPI 发布，公开使用请走 1.1 或 1.2）：
+从 [GitHub Release](https://github.com/zkw90274-dot/deeptutor-review-mcp/releases/tag/v1.7.3-r3) 下载 wheel。在已经安装 DeepTutor 1.7.3 及其依赖的环境中运行：
 
 ```bash
-pip install "deeptutor-review==1.7.3"
+python -m pip install --force-reinstall --no-deps deeptutor_review-1.7.3-3-py3-none-any.whl
 ```
 
 ### 安装后检查
@@ -117,8 +117,8 @@ python -m deeptutor.review.mcp_server --transport streamable-http
 
 | 工具 | 用途 |
 |---|---|
-| `review_specs` | 列出复习包（id、题数、概念数、质量状态） |
-| `review_due` | 跨包查看今日待练题量，不开启会话 |
+| `review_specs` | 分页列出复习包（id、题数、概念数、质量状态） |
+| `review_due` | 分页查看各包待练题量和全量汇总，无需开启会话 |
 | `review_today` | 今日队列；答案与解析刻意不下发 |
 | `review_attempt` | 记录三档自评（`again`/`hard`/`good`），幂等键 `submission_id` |
 | `review_hint` | 两级提示（L1 点名考点，L2 复述定义/公式），泄露检查失败则回落章节指引 |

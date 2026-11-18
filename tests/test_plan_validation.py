@@ -151,6 +151,12 @@ def test_unknown_action_still_soft_fails() -> None:
     assert "create" in payload["instruction"]
 
 
+def test_today_date_can_be_omitted() -> None:
+    result, payload = _call(action="today")
+    assert result.success is True
+    assert payload["days"] == []
+
+
 @pytest.mark.parametrize("text", ["20260118", "2026-W03-7", "2026-1-8", "2026-02-29"])
 @pytest.mark.parametrize(
     ("action", "field", "other"),

@@ -14,7 +14,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable, Iterator
 from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
@@ -343,8 +343,20 @@ class ReviewService:
 
     def spec_meta(self, spec_id: str) -> dict[str, Any]:
         meta = self.store.spec_meta(spec_id)
+        return self._describe_spec(meta, lambda: self.store.get_spec(spec_id))
+
+    def spec_page(self, *, limit: int, offset: int) -> tuple[int, list[dict[str, Any]]]:
+        count, rows = self.store.spec_page(limit=limit, offset=offset)
+        details = []
+        for row in rows:
+            payload = row.pop("spec_json")
+            details.append(self._describe_spec(row, lambda: self.store.decode_spec(row["spec_id"], payload)))
+        return count, details
+
+    def _describe_spec(self, meta: dict[str, Any], load_spec: Callable[[], ReviewSpec]) -> dict[str, Any]:
+        spec_id = meta["spec_id"]
         try:
-            spec = self.store.get_spec(spec_id)
+            spec = load_spec()
         except (ValidationError, SpecIntegrityError):
             # One damaged row must not take down the overview or the agent's
             # pack list. Report the pack as failed, with a stable title, and
@@ -420,6 +432,8 @@ class ReviewService:
         *,
         subject: str | None = None,
         now: float | None = None,
+        limit: int = 50,
+        offset: int = 0,
     ) -> dict[str, Any]:
         """Cross-pack due summary; never opens a session and never records a view.
 
@@ -442,18 +456,16 @@ class ReviewService:
         needle = (subject or "").strip()
         rows: list[dict[str, Any]] = []
         totals = {"queued": 0, "due": 0, "new": 0, "repeat": 0, "estimated_minutes": 0}
-        for meta in self.store.list_specs():
-            spec_id = str(meta.get("spec_id") or "")
-            try:
-                spec = self.store.get_spec(spec_id)
-            except (SpecNotFound, SpecIntegrityError, ValidationError):
-                # One damaged pack must not hide the rest of the library; the
-                # same policy ``spec_meta`` applies.
+        omitted = 0
+        for spec in self._iter_specs():
+            if spec is None:
+                omitted += 1
                 continue
             title = getattr(spec, "title", "") or ""
             if needle and needle not in title:
                 continue
             states = states_for_spec(spec, self.store, now=moment)
+            activity = self.store.item_activity(spec.id)
             today = build_today(
                 spec,
                 self.store,
@@ -461,12 +473,13 @@ class ReviewService:
                 session_id="",
                 states=states,
                 record_views=False,
+                activity=activity,
             )
             queued = len(today.get("items") or [])
             if not queued:
                 continue
             counts = today.get("counts") or {}
-            last = self.store.last_activity_ts(spec.id)
+            last = max(activity.values(), default=None)
             # Imported lazily: ``export_tree`` imports this module at load
             # time, so a module-level import here would be circular.
             from deeptutor.review.export_tree import split_pack_title
@@ -494,9 +507,18 @@ class ReviewService:
             "generated_at": iso_from_timestamp(moment),
             "subject": needle or None,
             "count": len(rows),
+            "omitted": omitted,
             "totals": totals,
-            "packs": rows,
+            "packs": rows[offset:offset + limit],
         }
+
+    def _iter_specs(self) -> Iterator[ReviewSpec | None]:
+        with self.store.spec_rows() as rows:
+            for row in rows:
+                try:
+                    yield self.store.decode_spec(row["spec_id"], row["spec_json"])
+                except (SpecIntegrityError, ValidationError):
+                    yield None
 
     def weakness(
         self, spec_id: str, *, limit: int = 5, now: float | None = None

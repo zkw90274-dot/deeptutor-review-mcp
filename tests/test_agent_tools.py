@@ -166,24 +166,14 @@ def test_specs_reports_an_internal_failure(
     assert "review_specs failed" in result.content
 
 
-def test_specs_orders_by_recency_numerically(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_specs_orders_by_recency_numerically(service: ReviewService) -> None:
     """``updated_at`` is an epoch float; a digit boundary must not reorder it."""
 
-    class _Stub:
-        def list_specs(self) -> list[dict[str, Any]]:
-            return [
-                {"spec_id": "older", "updated_at": 9_999_999_999.0},
-                {"spec_id": "newer", "updated_at": 10_000_000_000.0},
-            ]
-
-        def spec_meta(self, spec_id: str) -> dict[str, Any]:
-            return {
-                "title": spec_id,
-                "quality": {"passed": True, "warnings": []},
-                "counts": {"items": 1, "concepts": 1},
-            }
-
-    monkeypatch.setattr(agent_tools, "_service", _Stub)
+    for spec_id, timestamp in (("older", 9_999_999_999.0), ("newer", 10_000_000_000.0)):
+        spec = build_fixture_spec().model_copy(update={"id": spec_id, "content_hash": ""})
+        service.put_spec(spec)
+        with service.store._transaction() as conn:
+            conn.execute("UPDATE review_specs SET updated_at = ? WHERE spec_id = ?", (timestamp, spec_id))
     payload = _payload(_run(ReviewSpecsTool()), tool="review_specs")
     assert [row["id"] for row in payload["specs"]] == ["newer", "older"]
 

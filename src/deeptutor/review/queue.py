@@ -204,6 +204,7 @@ def build_today(
     states: dict[str, ConceptState] | None = None,
     record_views: bool = True,
     allow_recovery: bool = True,
+    activity: dict[tuple[str, str], float] | None = None,
 ) -> dict[str, Any]:
     tz = zone(spec.plan.timezone)
     exam, planned_minutes = _exam_plan(spec, now, tz)
@@ -217,15 +218,13 @@ def build_today(
     state_tasks: dict[str, Any | None] = {}
     concept_weakness: dict[str, float] = {}
     concept_predicted: dict[str, float] = {}
-    events_by_item: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    # One query, grouped per concept. Events of concepts that no longer exist
-    # in the spec (a forced rewrite leaves them dangling) stay excluded, which
-    # is what the previous per-concept reads did.
-    events_by_key: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for event in store.events_for_spec(spec.id):
-        events_by_key[str(event["concept_key"])].append(event)
+    activity = store.item_activity(spec.id) if activity is None else activity
+    concept_keys = {concept.key for concept in spec.concepts}
+    last_seen_by_item: dict[str, float] = {}
+    for (concept_key, item_id), timestamp in activity.items():
+        if concept_key in concept_keys:
+            last_seen_by_item[item_id] = max(timestamp, last_seen_by_item.get(item_id, timestamp))
     for concept in spec.concepts:
-        concept_events = events_by_key.get(concept.key, [])
         concept_state = resolved[concept.id]
         concept_states[concept.id] = concept_state.state
         state_sources[concept.id] = concept_state.source
@@ -239,8 +238,6 @@ def build_today(
         concept_weakness[concept.id] = weakness_score(
             concept_state.state, predicted, concept_state.task, now=now
         )
-        for event in concept_events:
-            events_by_item[str(event["item_id"])].append(event)
 
     review_rows: list[dict[str, Any]] = []
     new_rows: list[dict[str, Any]] = []
@@ -251,9 +248,8 @@ def build_today(
         concept_due = state.next_review_at <= now
         predicted = retrievability(concept, state, now=now, scheduler=scheduler)
         for item in spec.items_for_concept(concept.id):
-            item_events = events_by_item.get(item.id, [])
-            last_seen = max((float(event["ts"]) for event in item_events), default=None)
-            if not item_events:
+            last_seen = last_seen_by_item.get(item.id)
+            if last_seen is None:
                 core_is_known = (
                     state_sources[concept.id] == "core"
                     and not state_initial[concept.id]
@@ -312,7 +308,7 @@ def build_today(
 
     # "Again" is repeated once in the same session, but only once: the queue
     # must not become an infinite loop for a learner who keeps failing.
-    session_events = [event for event in store.events_for_session(session_id)]
+    session_events = store.events_for_session(session_id) if session_id else []
     again_by_item: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for event in session_events:
         if event["rating"] == "again":
@@ -353,7 +349,7 @@ def build_today(
     # "Least recently shown" rotation: without this, a concept with more
     # items than the daily slice would starve the tail forever.
     last_views = store.last_view_map(spec.id)
-    last_activity = store.last_activity_ts(spec.id)
+    last_activity = max(activity.values(), default=None)
     gap_days = (
         max(0.0, (now - last_activity) / DAY_SECONDS)
         if last_activity is not None

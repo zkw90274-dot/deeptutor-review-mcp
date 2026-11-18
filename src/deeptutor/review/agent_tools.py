@@ -299,6 +299,33 @@ async def _service_and_spec(
 # -- the eight tools --------------------------------------------------------
 
 
+def _page_parameters() -> list[ToolParameter]:
+    return [
+        ToolParameter(name="limit", type="integer", required=False, minimum=1, maximum=100,
+                      description="Page size, default 50 and maximum 100."),
+        ToolParameter(name="offset", type="integer", required=False, minimum=0, maximum=1_000_000,
+                      description="First row to return. Use next_offset from the previous result."),
+    ]
+
+
+def _read_page(kwargs: dict[str, Any]) -> tuple[int, int]:
+    limit = kwargs.get("limit", 50)
+    offset = kwargs.get("offset", 0)
+    if type(limit) is not int or not 1 <= limit <= 100:
+        raise ValueError("limit must be an integer from 1 to 100")
+    if type(offset) is not int or not 0 <= offset <= 1_000_000:
+        raise ValueError("offset must be an integer from 0 to 1000000")
+    return limit, offset
+
+
+def _page_result(count: int, offset: int, returned: int) -> dict[str, Any]:
+    return {
+        "count": count,
+        "offset": offset,
+        "next_offset": offset + returned if offset + returned < count else None,
+    }
+
+
 class ReviewSpecsTool(BaseTool):
     """The review packs available to this learner."""
 
@@ -311,26 +338,24 @@ class ReviewSpecsTool(BaseTool):
                 "whether it passed the generation quality gates. Call this "
                 "first whenever the learner asks to review, revise, drill or "
                 "be quizzed on something — every tool that reads or records "
-                "takes a spec_id, and these are the only ids that exist. Every "
-                "listed pack passed the quality gates when it was stored."
+                "takes a spec_id. Follow next_offset to see more stored packs. "
+                "Packs that fail current validation carry a warning or failed QA status."
             ),
-            parameters=[],
+            parameters=_page_parameters(),
         )
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         tool = "review_specs"
         try:
+            limit, offset = _read_page(kwargs)
+        except ValueError as exc:
+            return _soft(tool=tool, error=str(exc), instruction="Pass a valid limit and offset.")
+        try:
             service = await asyncio.to_thread(_service)
-            metas = await asyncio.to_thread(service.list_specs)
+            count, details = await asyncio.to_thread(service.spec_page, limit=limit, offset=offset)
             rows: list[dict[str, Any]] = []
-            for meta in metas:
-                spec_id = str(meta.get("spec_id") or "")
-                try:
-                    detail = await asyncio.to_thread(service.spec_meta, spec_id)
-                except SpecNotFound:
-                    # Removed between the listing and the read; a pack that no
-                    # longer exists must not appear in the catalog.
-                    continue
+            for detail in details:
+                spec_id = detail["spec_id"]
                 quality = detail.get("quality") or {}
                 counts = detail.get("counts") or {}
                 row = {
@@ -340,7 +365,7 @@ class ReviewSpecsTool(BaseTool):
                     "concepts": int(counts.get("concepts") or 0),
                     "qa_passed": bool(quality.get("passed")),
                     "qa_warnings": len(quality.get("warnings") or []),
-                    "updated_at": meta.get("updated_at"),
+                    "updated_at": detail.get("updated_at"),
                 }
                 if detail.get("warning"):
                     row["warning"] = _clip(str(detail["warning"]), 200)
@@ -348,18 +373,6 @@ class ReviewSpecsTool(BaseTool):
         except Exception as exc:  # noqa: BLE001
             return _internal_failure(tool, exc)
 
-        # Most recently touched first: the pack the learner just generated is
-        # almost always the one they mean. ``updated_at`` is an epoch float, so
-        # it is compared numerically (lexicographic order breaks across a digit
-        # boundary); a store that omits it sorts last rather than raising.
-        def _recency(row: dict[str, Any]) -> tuple[float, str]:
-            try:
-                stamp = float(row.get("updated_at"))
-            except (TypeError, ValueError):
-                stamp = 0.0
-            return (-stamp, row["id"])
-
-        rows.sort(key=_recency)
         if rows:
             instruction = (
                 "Match what the learner said against these titles and ids, then "
@@ -367,14 +380,19 @@ class ReviewSpecsTool(BaseTool):
                 "spec_id, and do not call review_today for more than one pack "
                 "unless the learner asks for a comparison."
             )
+        elif count:
+            instruction = "This page is empty. Start again at offset 0 or use a previous page."
         else:
             instruction = (
                 "This learner has no review packs yet. Say so plainly and offer "
                 "to build one from their material; do not invent a spec_id or "
                 "describe packs that do not exist."
             )
+        page = _page_result(count, offset, len(rows))
+        if page["next_offset"] is not None:
+            instruction += " Pass next_offset as offset to see more packs."
         return _result(
-            {"count": len(rows), "specs": rows, "instruction": instruction},
+            {**page, "specs": rows, "instruction": instruction},
             tool=tool,
         )
 
@@ -394,7 +412,8 @@ class ReviewDueTool(BaseTool):
                 "start with?' before choosing one pack for review_today. "
                 "Unlike review_today it opens no session and records nothing, "
                 "so it is safe to call repeatedly, and it does not return any "
-                "question text — call review_today for the actual items."
+                "question text — call review_today for the actual items. "
+                "Totals cover all matching packs. Follow next_offset for more rows."
             ),
             parameters=[
                 ToolParameter(
@@ -405,7 +424,8 @@ class ReviewDueTool(BaseTool):
                         "Optional subject filter: only packs whose title "
                         "contains this text (case-sensitive substring)."
                     ),
-                )
+                ),
+                *_page_parameters(),
             ],
         )
 
@@ -413,9 +433,13 @@ class ReviewDueTool(BaseTool):
         tool = "review_due"
         subject = _text(kwargs.get("subject"))
         try:
+            limit, offset = _read_page(kwargs)
+        except ValueError as exc:
+            return _soft(tool=tool, error=str(exc), instruction="Pass a valid limit and offset.")
+        try:
             service = await asyncio.to_thread(_service)
             overview = await asyncio.to_thread(
-                service.due_overview, subject=subject or None
+                service.due_overview, subject=subject or None, limit=limit, offset=offset
             )
         except Exception as exc:  # noqa: BLE001
             return _internal_failure(tool, exc)
@@ -437,6 +461,7 @@ class ReviewDueTool(BaseTool):
                 }
             )
         totals = overview.get("totals") or {}
+        page = _page_result(overview["count"], offset, len(rows))
         if rows:
             instruction = (
                 "These are queue counts, not question text: pick one pack with "
@@ -447,6 +472,8 @@ class ReviewDueTool(BaseTool):
                 "pack with `recovery: true` deliberately shows only a handful — "
                 "say that resuming is enough and do not call it a backlog."
             )
+        elif page["count"]:
+            instruction = "This page is empty. Use a previous page to see the queued packs."
         else:
             instruction = (
                 "Nothing is queued today"
@@ -454,11 +481,16 @@ class ReviewDueTool(BaseTool):
                 + ". Say so plainly; offer to check review_specs for packs, or "
                 "to generate new material. Do not invent due items."
             )
+        if page["next_offset"] is not None:
+            instruction += " Pass next_offset as offset with the same subject to see more packs."
+        if overview["omitted"]:
+            instruction += " Some stored packs could not be validated. Check review_specs for warnings."
         return _result(
             {
                 "generated_at": overview.get("generated_at"),
                 "subject": overview.get("subject"),
-                "count": len(rows),
+                **page,
+                "omitted": overview["omitted"],
                 "totals": {
                     "queued": int(totals.get("queued") or 0),
                     "due": int(totals.get("due") or 0),
@@ -1935,6 +1967,7 @@ class ReviewPlanTool(BaseTool):
                     kwargs.get("date"),
                     tool=tool,
                     field="date",
+                    optional=True,
                     instruction="Pass date as YYYY-MM-DD, or omit it for today.",
                 )
                 if invalid is not None:

@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from deeptutor.review.mcp_server import TOOL_CLASSES
 
 MANIFEST = (
@@ -47,6 +49,16 @@ def test_manifest_class_paths_match_the_tool_classes() -> None:
 def test_manifest_orders_are_unique() -> None:
     orders = [entry["order"] for entry in _manifest()["tools"].values()]
     assert len(orders) == len(set(orders))
+
+
+def test_experimental_catalog_matches_external_tools() -> None:
+    package_root = MANIFEST.parents[4]
+    if package_root.parent.name != "packages":
+        pytest.skip("experimental catalog lives only in the development checkout")
+    catalog = package_root.parents[1] / "experimental" / "mcp_catalog" / "deeptutor-review.json"
+    listed = json.loads(catalog.read_text(encoding="utf-8"))["server"]["enabled_tools"]
+    assert len(listed) == len(set(listed))
+    assert set(listed) == set(TOOL_CLASSES)
 
 
 def test_check_reports_ready(capsys) -> None:

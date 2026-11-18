@@ -18,7 +18,7 @@ import sqlite3
 import pytest
 
 from deeptutor.review import service as service_module
-from deeptutor.review.agent_tools import ReviewDueTool
+from deeptutor.review.agent_tools import ReviewDueTool, ReviewSpecsTool
 from deeptutor.review.fixture import SPEC_ID, build_fixture_spec
 from deeptutor.review.service import ReviewService
 
@@ -87,24 +87,36 @@ def test_empty_library_returns_an_honest_zero() -> None:
     assert "Nothing is queued" in payload["instruction"]
 
 
-def test_damaged_pack_does_not_hide_the_rest(
-    seeded: ReviewService, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """One unreadable row must be skipped, not turned into a failure.
+def test_paginated_tools_cover_a_large_library(seeded: ReviewService) -> None:
+    source = build_fixture_spec()
+    with seeded.store._transaction() as conn:
+        for index in range(500):
+            key = f"sample-{index:03d}"
+            pack = source.model_copy(update={"id": key, "content_hash": ""})
+            conn.execute("INSERT INTO review_specs VALUES (?, ?, ?, ?, ?)", (key, "", 0, index, pack.model_dump_json()))
 
-    The tool resolves its own service per call, so the patch has to land on the
-    store class rather than on the fixture's instance.
-    """
-    from deeptutor.review.storage import ReviewStore, SpecIntegrityError
+    for tool, field, identifier in ((ReviewSpecsTool(), "specs", "id"), (ReviewDueTool(), "packs", "spec_id")):
+        first = json.loads(asyncio.run(tool.execute()).content)
+        assert first["count"] == 501
+        assert len(first[field]) == 50
+        assert first["next_offset"] == 50
+        ids = []
+        for offset in range(0, 501, 100):
+            response = json.loads(asyncio.run(tool.execute(offset=offset, limit=100)).content)
+            assert response["count"] == 501
+            assert len(response[field]) == min(100, 501 - offset)
+            ids.extend(row[identifier] for row in response[field])
+            if field == "packs":
+                assert response["totals"]["queued"] == 501 * 3
+        assert len(set(ids)) == 501
+        assert response["next_offset"] is None
+        assert _counts() == {"review_sessions": 0, "review_views": 0, "review_events": 0}
 
-    real_get_spec = ReviewStore.get_spec
 
-    def flaky(self, spec_id: str):
-        if spec_id == SPEC_ID:
-            raise SpecIntegrityError("damaged")
-        return real_get_spec(self, spec_id)
-
-    monkeypatch.setattr(ReviewStore, "get_spec", flaky)
+def test_damaged_pack_does_not_hide_the_rest(seeded: ReviewService) -> None:
+    with seeded.store._transaction() as conn:
+        conn.execute("UPDATE review_specs SET spec_json = '{}' WHERE spec_id = ?", (SPEC_ID,))
     payload = _call()
     assert payload["count"] == 0
+    assert payload["omitted"] == 1
     assert payload["instruction"]

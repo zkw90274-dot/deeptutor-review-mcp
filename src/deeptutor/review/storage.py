@@ -600,7 +600,11 @@ class ReviewStore:
             ).fetchone()
         if row is None:
             raise SpecNotFound(spec_id)
-        spec = ReviewSpec.model_validate_json(row["spec_json"])
+        return self.decode_spec(spec_id, row["spec_json"])
+
+    @staticmethod
+    def decode_spec(spec_id: str, payload: str) -> ReviewSpec:
+        spec = ReviewSpec.model_validate_json(payload)
         if spec.id != spec_id:
             # The row key is what every read/write path uses; an embedded id
             # that disagrees would make ``today`` write into a different pack.
@@ -608,6 +612,21 @@ class ReviewStore:
                 f"stored spec id {spec.id!r} does not match row key {spec_id!r}"
             )
         return spec
+
+    def spec_page(self, *, limit: int, offset: int) -> tuple[int, list[dict[str, Any]]]:
+        with self._read_connection() as conn:
+            conn.execute("BEGIN")
+            count = conn.execute("SELECT COUNT(*) FROM review_specs").fetchone()[0]
+            rows = conn.execute(
+                "SELECT * FROM review_specs ORDER BY updated_at DESC, spec_id LIMIT ? OFFSET ?",
+                (limit, offset),
+            ).fetchall()
+        return count, [dict(row) for row in rows]
+
+    @contextmanager
+    def spec_rows(self) -> Iterator[Iterator[sqlite3.Row]]:
+        with self._read_connection() as conn:
+            yield iter(conn.execute("SELECT spec_id, spec_json FROM review_specs ORDER BY spec_id"))
 
     def spec_meta(self, spec_id: str) -> dict[str, Any]:
         with self._connect() as conn:
@@ -656,6 +675,24 @@ class ReviewStore:
                 (spec_id, concept_key),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    @contextmanager
+    def replay_events(self, spec_id: str) -> Iterator[Iterator[sqlite3.Row]]:
+        with self._read_connection() as conn:
+            yield iter(conn.execute(
+                "SELECT concept_key, item_id, ts, result, quality, session_id "
+                "FROM review_events WHERE spec_id = ? ORDER BY concept_key, rowid",
+                (spec_id,),
+            ))
+
+    def item_activity(self, spec_id: str) -> dict[tuple[str, str], float]:
+        with self._read_connection() as conn:
+            rows = conn.execute(
+                "SELECT concept_key, item_id, MAX(ts) FROM review_events "
+                "WHERE spec_id = ? GROUP BY concept_key, item_id",
+                (spec_id,),
+            )
+            return {(key, item): float(timestamp) for key, item, timestamp in rows}
 
     def event_by_submission(self, submission_id: str) -> dict[str, Any] | None:
         with self._connect() as conn:

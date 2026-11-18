@@ -10,6 +10,7 @@ owns every transition; this module only answers three questions:
 
 from __future__ import annotations
 
+from itertools import chain, islice
 from typing import Iterable, Literal
 
 from deeptutor.learning.models import (
@@ -123,10 +124,13 @@ def replay_state(
     the same concept.
     """
     engine = scheduler
-    rows = list(events)
-    if not rows:
+    rows = iter(events)
+    first = next(rows, None)
+    if first is None:
         return engine.get_initial_state(knowledge_type_of(concept), now=now)
-    evidence = [
+    knowledge_type = knowledge_type_of(concept)
+    state = engine.get_initial_state(knowledge_type, now=float(first["ts"]))
+    evidence = (
         LearningEvidence(
             question_id=str(row["item_id"] or ""),
             knowledge_point_id=concept.key,
@@ -137,15 +141,11 @@ def replay_state(
             quality=float(row["quality"]),
             session_id=str(row["session_id"] or ""),
         )
-        for row in rows
-    ]
-    return engine.replay(
-        knowledge_type_of(concept),
-        evidence,
-        initial_state=engine.get_initial_state(
-            knowledge_type_of(concept), now=evidence[0].timestamp
-        ),
+        for row in chain((first,), rows)
     )
+    while batch := list(islice(evidence, 256)):
+        state = engine.replay(knowledge_type, batch, initial_state=state)
+    return state
 
 
 def retrievability(

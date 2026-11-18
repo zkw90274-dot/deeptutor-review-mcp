@@ -280,7 +280,10 @@ def _input_schema(definition: ToolDefinition) -> dict[str, Any]:
     ``to_openai_schema`` already encodes ``ToolParameter`` (type, required,
     enum, bounds, nullable, array items). Re-encoding it here would drift.
     """
-    return definition.to_openai_schema()["function"]["parameters"]
+    return {
+        **definition.to_openai_schema()["function"]["parameters"],
+        "additionalProperties": False,
+    }
 
 
 #: Deployment context an MCP client shows to its model at initialize time.
@@ -361,7 +364,7 @@ def build_instructions() -> str:
 
 
 def build_server() -> Server[Any, Any]:
-    """Build the MCP server with the ten review tools registered.
+    """Build the MCP server with all review tools registered.
 
     A fresh mapping of tool instances is created per call so tests can build
     isolated servers; the tools themselves hold no state.

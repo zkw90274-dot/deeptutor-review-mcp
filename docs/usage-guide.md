@@ -61,7 +61,7 @@ deptutor stop
 - `num_questions` 会被夹到 5–20；`question_types` 可选 `choice` / `written`。
 - 同一章重复生成会命中同一个包 id；要覆盖必须显式 `replace=true`。
 - 生成内容受门禁约束（数学分隔符必须配对、答案必须覆盖、解析不能空洞等）；不过门禁的内容不会进库。
-- **已知问题（core 1.7.3）**：使用 `deepseek-flash` 等 thinking 模型时，生成可能报 `reasoning_content in the thinking mode must be passed back`；改用 `deepseek-chat` 生成，或等上游 [HKUDS/DeepTutor#2766](https://github.com/HKUDS/DeepTutor/issues/2766) 修复。其余 9 个工具不受影响。
+- 核心 `1.7.3` 使用 `deepseek-flash` 等 thinking 模型出题时，可能报 `reasoning_content in the thinking mode must be passed back`。可用 `deepseek-chat` 生成。[上游问题](https://github.com/HKUDS/DeepTutor/issues/2766)
 
 ## 5. 每天复习
 
@@ -148,8 +148,8 @@ deptutor stop
 
 | 工具 | 什么时候用 | 关键参数 |
 |---|---|---|
-| `review_specs` | 看有哪些复习包 | — |
-| `review_due` | 跨包看今日待练题量，保留会话状态 | 可选 `subject` |
+| `review_specs` | 看有哪些复习包 | 可选 `limit`、`offset` |
+| `review_due` | 跨包看今日待练题量，保留会话状态 | 可选 `subject`、`limit`、`offset` |
 | `review_today` | 今天该复习什么 | `spec_id` |
 | `review_attempt` | 记录自评 | `spec_id, item_id, rating, session_id` |
 | `review_hint` | 卡住了要提示 | `spec_id, item_id, level(1 概念方向 / 2 定义公式)` |

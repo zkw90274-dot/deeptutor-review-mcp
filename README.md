@@ -20,7 +20,7 @@ Python **3.11+**.
 ```bash
 git clone https://github.com/zkw90274-dot/deeptutor-review-mcp.git
 cd deeptutor-review-mcp
-git checkout v1.7.3-r2
+git checkout v1.7.3-r3
 python -m venv .venv
 .venv/Scripts/activate          # Windows
 # source .venv/bin/activate     # macOS / Linux
@@ -37,8 +37,20 @@ This installs the MCP entry point `deeptutor-review-mcp` plus its dependencies f
 Or install straight from git:
 
 ```bash
-pip install "git+https://github.com/zkw90274-dot/deeptutor-review-mcp.git@v1.7.3-r2"
+pip install "git+https://github.com/zkw90274-dot/deeptutor-review-mcp.git@v1.7.3-r3"
 ```
+
+For an existing DeepTutor 1.7.3 environment, download
+`deeptutor_review-1.7.3-3-py3-none-any.whl` from the [r3 release](https://github.com/zkw90274-dot/deeptutor-review-mcp/releases/tag/v1.7.3-r3)
+and install it with the target environment's Python:
+
+```bash
+python -m pip install --force-reinstall --no-deps deeptutor_review-1.7.3-3-py3-none-any.whl
+deeptutor-review-mcp --check
+```
+
+The wheel build tag `3` identifies r3. The installed version remains `1.7.3`
+to match the DeepTutor module gate.
 
 ### DeepTutor desktop app
 
@@ -110,6 +122,13 @@ Then say to the agent:
 | `review_book_figures` | Which figures a live-book section has | no | no | no |
 | `review_generate` | Generate a new pack from one KB chapter (background job) | **yes** | **yes** | no |
 | `review_plan` | Multi-week study plan, mirrored to calendar/task board | no (drafting a chapter note does) | **yes** | no |
+
+`review_specs` and `review_due` return up to 50 packs by default. Pass `limit`
+from 1 to 100 and pass the returned `next_offset` as `offset` to get another
+page. `count` and `review_due.totals` cover all matching packs. `review_due.omitted`
+counts unreadable or invalid packs across the whole store, including when `subject`
+is set. If packs or review progress change between requests, restart from offset 0
+to refresh the listing.
 
 `review_plan` takes calendar dates in `YYYY-MM-DD` form. `review_export_tree`
 only replaces or removes pages it generated and can still verify by checksum.

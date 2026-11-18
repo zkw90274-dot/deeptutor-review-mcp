@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 import os
-from collections import defaultdict
+from itertools import groupby
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -203,14 +203,9 @@ def states_for_spec(
     kp_index = _kp_index(progress) if progress is not None else {}
     task_by_kp = _core_tasks(progress, now=now) if progress is not None else {}
     scheduler = scheduler_for(spec)
-    # One query for the whole spec instead of one connection per concept; the
-    # rows stay rowid-ordered, so each concept's replay sees the same history.
-    local_events_by_key: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for event in store.events_for_spec(spec.id):
-        local_events_by_key[str(event["concept_key"])].append(event)
     result: dict[str, ConceptState] = {}
+    local_concepts: dict[str, Concept] = {}
     for concept in spec.concepts:
-        local_events = local_events_by_key.get(concept.key, [])
         task = task_by_kp.get(str(concept.knowledge_point_id)) if concept.knowledge_point_id else None
         core: RepetitionState | None = None
         initial = False
@@ -218,7 +213,7 @@ def states_for_spec(
             core, initial = _core_state_for_indexed(
                 spec, concept, progress, kp_index, now=now
             )
-        if core is not None and not (initial and local_events):
+        if core is not None:
             # A synthetic core state means "the core has never seen this
             # objective". If Review has answers for it, the core write did not
             # land (projection failed); replaying the local history is the only
@@ -229,25 +224,30 @@ def states_for_spec(
                 initial=initial,
                 task=task,
             )
-            continue
-        local = replay_state(
-            concept,
-            local_events,
-            now=now,
-            scheduler=scheduler,
-        )
-        reason = (
-            "core_state_missing_local_history"
-            if core is not None
-            else ("core_unavailable" if has_linkage else "no_linkage")
-        )
-        result[concept.id] = ConceptState(
-            state=local,
-            source="review",
-            initial=False,
-            reason=reason,
-            task=task,
-        )
+        if core is None or initial:
+            local_concepts[concept.key] = concept
+    with store.replay_events(spec.id) as rows:
+        for key, events in groupby(rows, key=lambda event: event["concept_key"]):
+            concept = local_concepts.pop(key, None)
+            if concept is None:
+                continue
+            previous = result.get(concept.id)
+            result[concept.id] = ConceptState(
+                state=replay_state(concept, events, now=now, scheduler=scheduler),
+                source="review",
+                reason="core_state_missing_local_history" if previous else (
+                    "core_unavailable" if has_linkage else "no_linkage"
+                ),
+                task=task_by_kp.get(str(concept.knowledge_point_id)),
+            )
+    for concept in local_concepts.values():
+        if concept.id not in result:
+            result[concept.id] = ConceptState(
+                state=replay_state(concept, (), now=now, scheduler=scheduler),
+                source="review",
+                reason="core_unavailable" if has_linkage else "no_linkage",
+                task=task_by_kp.get(str(concept.knowledge_point_id)),
+            )
     return result
 
 

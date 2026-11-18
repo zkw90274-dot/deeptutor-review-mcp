@@ -134,9 +134,10 @@ def test_listed_tools_are_generated_from_agent_definitions() -> None:
     for listed in tools:
         definition = definitions[listed.name]
         assert listed.description == definition.description
-        assert listed.inputSchema == definition.to_openai_schema()["function"][
-            "parameters"
-        ]
+        assert listed.inputSchema == {
+            **definition.to_openai_schema()["function"]["parameters"],
+            "additionalProperties": False,
+        }
 
     # Pin the async-generation parameter explicitly: if the definition and
     # the MCP schema ever drifted together, the equality above would still
@@ -226,6 +227,16 @@ def test_each_tool_call_returns_json(review_home) -> None:
     for name, payload in payloads.items():
         assert payload.get("instruction"), f"{name} lost its instruction field"
     assert payloads["review_export_link"]["url"].endswith(f"/{SPEC_ID}/export")
+
+
+def test_unknown_argument_is_an_mcp_error() -> None:
+    async def scenario():
+        async with create_connected_server_and_client_session(build_server()) as session:
+            return await session.call_tool("review_due", {"subjects": ["sample"]})
+
+    result = _run(scenario)
+    assert result.isError
+    assert "subjects" in result.content[0].text
 
 
 def test_unknown_tool_is_an_mcp_error() -> None:
