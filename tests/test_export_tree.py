@@ -13,6 +13,7 @@ import pytest
 from deeptutor.review.agent_tools import ReviewExportTreeTool
 from deeptutor.review.export_tree import (
     UNNAMED,
+    _book_href,
     build_index,
     export_tree,
     safe_component,
@@ -245,3 +246,111 @@ def test_build_index_accepts_an_explicit_timestamp(tmp_path: Path) -> None:
     assert "导出于 2026-01-01 01:01" in (tmp_path / "index.html").read_text(
         encoding="utf-8"
     )
+
+
+class _FigureService(_Service):
+    """A service whose export() accepts the optional living-book index."""
+
+    def __init__(self, specs, books=None, chapters=None) -> None:
+        super().__init__(specs)
+        self.books = books or {}
+        self.chapters = chapters or {}
+        self.calls: list[tuple[str, object]] = []
+
+    def export(self, spec_id: str, *, book_figures=None) -> str:  # noqa: D401
+        self.calls.append((spec_id, book_figures))
+        spec = self.store.specs[spec_id]
+        block = f"<section class='book-figures'>{book_figures['href']}</section>" if book_figures else ""
+        return f"<html><body>{spec.title}{block}</body></html>"
+
+
+def _write_book_index(home: Path, book: Path, subject: str, chapter: str) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "book-figures.json").write_text(
+        json.dumps(
+            {
+                "books": {
+                    subject: {
+                        "2.1": {
+                            "title": "系统总线",
+                            "anchor": "s2-1",
+                            "figures": [{"label": "图 2-1", "caption": "图 2-1 引脚"}],
+                        }
+                    }
+                },
+                "chapters": {chapter: {"2.1": [{"label": "图 2-1", "caption": "图 2-1 引脚"}]}},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (home / "books.json").write_text(
+        json.dumps({subject: {"html": str(book)}}, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def test_export_tree_links_the_chapter_figures_into_the_book(tmp_path: Path, monkeypatch) -> None:
+    home = tmp_path / "review-home"
+    book = tmp_path / "books" / "高频_活书.html"
+    book.parent.mkdir(parents=True)
+    book.write_text("<html></html>", encoding="utf-8")
+    _write_book_index(home, book, "高频", "第1章_绪论")
+    monkeypatch.setenv("DEEPTUTOR_REVIEW_HOME", str(home))
+
+    service = _FigureService([_Spec("kb-1", "高频 · 第1章_绪论 复习包", [object()])])
+    export_tree(service, tmp_path / "packs")
+
+    sent = service.calls[0][1]
+    assert sent is not None
+    assert sent["book"] == "高频_活书"
+    # The link is relative to the pack page, not to the export root.
+    assert sent["href"] == "../../books/高频_活书.html"
+    assert sent["sections"][0]["anchor"] == "s2-1"
+    page = (tmp_path / "packs" / "高频" / "第1章_绪论.html").read_text(encoding="utf-8")
+    assert "book-figures" in page
+    assert "../../books/高频_活书.html" in page
+
+
+def test_book_href_falls_back_to_a_uri_across_windows_drives(
+    tmp_path: Path, monkeypatch
+) -> None:
+    book = tmp_path / "books" / "高频_活书.html"
+
+    def refuse(*_args, **_kwargs):
+        raise ValueError("path is on mount 'D:', start on mount 'C:'")
+
+    monkeypatch.setattr("deeptutor.review.export_tree.os.path.relpath", refuse)
+    assert _book_href(book, tmp_path / "packs" / "高频" / "第1章.html") == book.as_uri()
+
+
+def test_export_tree_omits_the_block_when_the_pack_has_no_book_figures(
+    tmp_path: Path, monkeypatch
+) -> None:
+    home = tmp_path / "review-home"
+    book = tmp_path / "books" / "高频_活书.html"
+    book.parent.mkdir(parents=True)
+    book.write_text("<html></html>", encoding="utf-8")
+    _write_book_index(home, book, "高频", "第1章_绪论")
+    monkeypatch.setenv("DEEPTUTOR_REVIEW_HOME", str(home))
+
+    # 实验课 packs are not plan chapters, so the index must not claim them.
+    service = _FigureService([_Spec("kb-9", "高频 · 实验四_振荡器实验 复习包", [object()])])
+    export_tree(service, tmp_path / "packs")
+
+    assert service.calls[0][1] is None
+    page = (tmp_path / "packs" / "高频" / "实验四_振荡器实验.html").read_text(encoding="utf-8")
+    assert "book-figures" not in page
+
+
+def test_export_tree_omits_the_block_when_the_book_is_missing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    home = tmp_path / "review-home"
+    _write_book_index(home, tmp_path / "books" / "不在本机.html", "高频", "第1章_绪论")
+    monkeypatch.setenv("DEEPTUTOR_REVIEW_HOME", str(home))
+
+    service = _FigureService([_Spec("kb-1", "高频 · 第1章_绪论 复习包", [object()])])
+    export_tree(service, tmp_path / "packs")
+
+    # A link into a file that is not there is worse than no link at all.
+    assert service.calls[0][1] is None

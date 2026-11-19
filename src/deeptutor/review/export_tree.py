@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import html
 import hashlib
+import inspect
 import os
 import re
 import stat
@@ -30,6 +31,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Sequence
 
+from deeptutor.review import materials
 from deeptutor.review.service import QualityGateFailed
 
 #: Separator between subject and chapter in a pack title.
@@ -150,6 +152,66 @@ def _gate_reason(exc: QualityGateFailed) -> str:
     if failed:
         return "quality gates: " + ", ".join(sorted(set(failed)))
     return "quality gates did not pass"
+
+
+def _pack_book_figures(
+    subject: str,
+    chapter: str,
+    destination: Path,
+    index: dict[str, Any],
+    books: dict[str, Any],
+    sections: dict[str, Any],
+) -> dict[str, Any] | None:
+    """This chapter's diagrams with a relative link back into its book.
+
+    The drawings themselves are prepared by ``figures.pack_figures``; the tree
+    only adds what a multi-file export has and a single page does not: the
+    book sits beside the pack folders, so a relative path lets an undrawable
+    figure still point at the section that shows it. A pack whose chapter is
+    not in the plan (experiments) or whose book is not on this machine gets
+    None, and the page renders without the block.
+    """
+    from deeptutor.review import figures as figure_source
+
+    payload = figure_source.pack_figures(
+        subject, chapter, index=index, books=books, sections=sections
+    )
+    if payload is None:
+        return None
+    resolved = materials.resolve_book(str((books.get(subject) or "")))
+    if resolved is None:
+        return None
+    payload["href"] = _book_href(resolved, destination)
+    return payload
+
+
+def _book_href(book: Path, destination: Path) -> str:
+    """Relative path from a pack page to its book.
+
+    A book and an export folder can sit on different Windows drives, where no
+    relative path exists; fall back to a file URI so the link still opens
+    instead of aborting the whole tree.
+    """
+    try:
+        return os.path.relpath(book, destination.parent).replace(os.sep, "/")
+    except ValueError:
+        return book.as_uri()
+
+
+def _accepts_book_figures(service: Any) -> bool:
+    """Whether this service's export() takes the optional figure index.
+
+    A third-party or test double may implement the older two-argument export;
+    the block is additive, so degrade to the old call instead of failing the
+    whole tree.
+    """
+    try:
+        parameters = inspect.signature(service.export).parameters
+    except (TypeError, ValueError):
+        return False
+    return "book_figures" in parameters or any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
+    )
 
 
 def _group(entries: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -278,6 +340,10 @@ def export_tree(
     retained: set[str] = set()
     names: set[str] = set()
     selected_folders: dict[str, str] = {}
+    takes_figures = _accepts_book_figures(service)
+    figure_index = materials.load_book_figures() if takes_figures else {}
+    book_files = materials.load_books() if takes_figures else {}
+    section_plan = materials.load_book_sections() if takes_figures else {}
 
     for meta in service.store.list_specs():
         spec = service.store.get_spec(meta["spec_id"])
@@ -293,7 +359,14 @@ def export_tree(
             raise ExportConflict(f"more than one pack maps to {relative}")
         names.add(relative.casefold())
         try:
-            page = service.export(spec.id)
+            figures = (
+                _pack_book_figures(
+                    subject, chapter, destination, figure_index, book_files, section_plan
+                )
+                if takes_figures
+                else None
+            )
+            page = service.export(spec.id, book_figures=figures) if takes_figures else service.export(spec.id)
         except QualityGateFailed as exc:
             retained.add(relative.casefold())
             skipped.append({

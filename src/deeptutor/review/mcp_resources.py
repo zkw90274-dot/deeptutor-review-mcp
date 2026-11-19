@@ -42,7 +42,11 @@ def register_resources(server: Server) -> None:
     async def list_resource_templates() -> list[types.ResourceTemplate]:
         return [types.ResourceTemplate(
             uriTemplate=EXPORT_URI_TEMPLATE, name="review-pack-export", mimeType="text/html",
-            description="Read a self-contained offline review pack. Locate spec_id with review_specs.",
+            description=(
+                "Read a self-contained offline review pack, with its chapter's "
+                "living-book diagrams inlined when the book is on this machine. "
+                "Locate spec_id with review_specs."
+            ),
         )]
 
     @server.read_resource()

@@ -17,6 +17,7 @@ from deeptutor.review.export import (
     normalize_math_placeholders,
     normalize_prose_math,
 )
+from deeptutor.review import figures as figure_source
 from deeptutor.review.fixture import build_fixture_spec
 from deeptutor.review.models import ReviewSpec
 from deeptutor.review.qa import run_gates
@@ -605,3 +606,117 @@ def test_print_media_resets_narrow_figure_rules(service: ReviewService) -> None:
     assert ".figure svg{min-width:0}" in html
 
 
+
+
+def _figures_block() -> dict:
+    return {
+        "book": "微机原理及应用_第1-11讲_活书",
+        "href": "../../03_微机原理/微机原理及应用_第1-11讲_活书.html",
+        "sections": [
+            {
+                "no": "2.1",
+                "title": "系统总线",
+                "anchor": "s2-1",
+                "figures": [
+                    {"label": "图 2-1", "caption": "图 2-1 8088 的 40 个引脚"},
+                    {"label": "图 2-2", "caption": "图 2-2 最小模式"},
+                ],
+            }
+        ],
+    }
+
+
+def test_book_figures_block_falls_back_to_relative_links(service: ReviewService) -> None:
+    spec = _grade(service)
+    page = service.export(spec.id, now=NOW, book_figures=_figures_block())
+
+    # A figure the caller could only name still points into the book: static
+    # markup, so the block survives a file:// page with JS disabled.
+    assert 'class="book-figures"' in page
+    assert 'href="../../03_微机原理/微机原理及应用_第1-11讲_活书.html#s2-1"' in page
+    # The printed number is the bold label, not repeated in the caption.
+    assert ">图 2-1</b> 8088 的 40 个引脚" in page
+    assert page.count("图 2-1") == 1
+
+
+SVG = figure_source.prepare_svg(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 10">'
+    '<rect class="box" x="1.000000" y="1.000000" width="18.000000" height="8.000000" '
+    'style="fill:none;stroke:var(--fig-accent)"/>'
+    "</svg>",
+    "f0-0-",
+    "图 1-1 曲线",
+)
+
+
+def test_book_figures_block_inlines_the_drawing(service: ReviewService) -> None:
+    spec = _grade(service)
+    block = {
+        "book": "微机原理及应用_第1-11讲_活书",
+        "sections": [
+            {
+                "no": "2.1",
+                "title": "系统总线",
+                "figures": [
+                    {"label": "图 2-1", "caption": "图 2-1 8088 的引脚，取 $f_s+f_i$ 之和", "svg": SVG}
+                ],
+            }
+        ],
+    }
+    page = service.export(spec.id, now=NOW, book_figures=block)
+    assert '<figure class="book-figure">' in page
+    assert "viewBox=\"0 0 20 10\"" in page
+    # Geometry is rounded on the way in; the drawing needs no second file.
+    assert 'x="1"' in page and "1.000000" not in page
+    # The caption's math is wrapped for the page typesetter, delimiters intact.
+    assert '<span class="math">$f_s+f_i$</span>' in page
+    assert "断网也能看" in page
+    # The book palette travels with the block so the drawing has ink.
+    assert "--fig-accent:#0d6e64" in page
+    assert 'html[data-theme="dark"] .book-figures' in page
+
+
+def test_book_figures_block_drops_rows_without_svg_or_href(service: ReviewService) -> None:
+    spec = _grade(service)
+    # A single-page export has no book beside it, so a named-but-undrawable
+    # figure must not ship as a dead link or an empty caption.
+    block = {"book": "b", "sections": [{"no": "1.1", "title": "t", "figures": [
+        {"label": "图 1-1", "caption": "图 1-1 曲线"}]}]}
+    assert "本章相关插图" not in service.export(spec.id, now=NOW, book_figures=block)
+
+
+def test_book_figures_block_is_absent_by_default(service: ReviewService) -> None:
+    spec = _grade(service)
+    page = service.export(spec.id, now=NOW)
+    # Single-page exports have no book beside them; a dead link would be worse.
+    assert 'class="book-figures"' not in page
+    assert "本章相关插图" not in page
+
+
+def test_book_figures_block_ignores_empty_sections(service: ReviewService) -> None:
+    spec = _grade(service)
+    empty = {"book": "x", "href": "x.html", "sections": [{"no": "1.1", "figures": []}]}
+    assert "本章相关插图" not in service.export(spec.id, now=NOW, book_figures=empty)
+
+
+def test_book_figures_escape_learner_text(service: ReviewService) -> None:
+    spec = _grade(service)
+    hostile = {
+        "book": "<script>x</script>",
+        "href": "a.html\" onmouseover=\"x",
+        "sections": [
+            {
+                "no": "1",
+                "title": "<b>粗</b>",
+                "anchor": "s1",
+                "figures": [{"label": "图 1-1", "caption": "<img src=x>"}],
+            }
+        ],
+    }
+    page = service.export(spec.id, now=NOW, book_figures=hostile)
+    assert "<script>x</script>" not in page
+    assert "<img src=x>" not in page
+    # The quote stays inside the attribute: the malicious text is inert data.
+    assert 'href="a.html&quot; onmouseover=&quot;x#s1"' in page
+    assert 'onmouseover="x"' not in page
+    assert "&lt;b&gt;粗&lt;/b&gt;" in page

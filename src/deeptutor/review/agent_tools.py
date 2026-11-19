@@ -2665,8 +2665,10 @@ class ReviewExportLinkTool(BaseTool):
             name="review_export_link",
             description=(
                 "Return the URL of the printable review page for one Review "
-                "Studio pack. The page itself renders self-contained, including "
-                "figures, so once open it works offline — but the URL is served "
+                "Studio pack. The page renders self-contained: when the pack's "
+                "chapter is a living-book chapter, its diagrams are inlined as "
+                "static SVG (no script, no second file), so once open it works "
+                "offline — but the URL is served "
                 "by the DeepTutor web app, so this tool needs that app running "
                 "and the learner signed in; it does not work in a standalone "
                 "deployment. Use review_export_tree when the learner needs an "
@@ -2747,9 +2749,11 @@ class ReviewExportTreeTool(BaseTool):
                 "guessing. The tree is rebuilt from the store on every call, so "
                 "renamed chapters leave no stale page and no dated snapshot "
                 "folders accumulate; packs failing the quality gates are "
-                "skipped and reported. Use it when the learner wants everything "
-                "on disk (backup, print run, another machine) rather than one "
-                "link. It changes no review state and starts no session."
+                "skipped and reported. Each page inlines its chapter's "
+                "living-book diagrams the way the book shows them, so a page "
+                "has no figure left behind. Use it when the learner wants "
+                "everything on disk (backup, print run, another machine) rather "
+                "than one link. It changes no review state and starts no session."
             ),
             parameters=[
                 ToolParameter(

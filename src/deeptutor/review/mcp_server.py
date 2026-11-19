@@ -398,8 +398,8 @@ learner before reporting that an attempt updated Mastery.
 
 review_generate builds a pack from one
 knowledge-base chapter; review_plan schedules multi-week study;
-review_export_link returns one self-contained HTML page; review_export_tree
-writes the whole collection.
+review_export_link and review_export_tree return offline pages that inline
+their chapter's living-book diagrams.
 
 Read review://book-figures for the diagram index and, on request,
 review://spec/{{spec_id}}/export for offline pack HTML. review_generate accepts

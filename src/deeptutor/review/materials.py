@@ -442,6 +442,56 @@ def section_line(
 #: Local index of the diagrams each living book prints, section by section.
 BOOK_FIGURES_FILENAME = "book-figures.json"
 
+#: Subject -> built living-book HTML, as recorded by the book build.
+BOOKS_FILENAME = "books.json"
+
+
+def load_books() -> dict[str, str]:
+    """Subject -> built book path for one deployment, empty when absent.
+
+    The path is returned exactly as recorded (it may be relative to the
+    checkout); callers resolve it, because only they know which roots exist.
+    Published installs carry no books.json and must keep working.
+    """
+    from deeptutor.review.storage import review_home
+
+    try:
+        payload = json.loads(
+            (review_home() / BOOKS_FILENAME).read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        return {}
+    out: dict[str, str] = {}
+    if isinstance(payload, dict):
+        for subject, info in payload.items():
+            rel = str((info or {}).get("html") or "").strip() if isinstance(info, dict) else ""
+            if str(subject).strip() and rel:
+                out[str(subject).strip()] = rel
+    return out
+
+
+def resolve_book(recorded: str) -> Path | None:
+    """The built book behind a books.json entry, or None when it is absent.
+
+    books.json records paths the way the book build wrote them, usually
+    relative to the checkout. Only the caller knows the checkout root, so try
+    the review home and its ancestors; a record that resolves nowhere yields
+    no figures rather than a link into nothing.
+    """
+    if not recorded:
+        return None
+    candidate = Path(recorded).expanduser()
+    if candidate.is_absolute():
+        return candidate if candidate.is_file() else None
+    from deeptutor.review.storage import review_home
+
+    home = review_home()
+    for root in (home, *home.parents):
+        path = root / candidate
+        if path.is_file():
+            return path
+    return None
+
 
 def load_book_figures() -> dict[str, Any]:
     """The diagram index (<review home>/book-figures.json), empty when absent.

@@ -1125,6 +1125,8 @@ class ReviewService:
         *,
         include_snapshot: bool = False,
         now: float | None = None,
+        book_figures: dict[str, Any] | None = None,
+        with_figures: bool = True,
     ) -> str:
         spec = self.store.get_spec(spec_id)
         report = run_gates(spec)
@@ -1133,6 +1135,17 @@ class ReviewService:
         record = self._quality_record(spec)
         if record["state"] == "rejected":
             raise QualityGateFailed(report.model_copy(update={"passed": False, "warnings": [*report.warnings, provenance.WARNINGS["rejected"]]}))
+        if book_figures is None and with_figures:
+            # The chapter's drawings come from the pack title, which is the
+            # same mapping the export tree uses for its folders. A deployment
+            # without the book index, or a broken drawing, must never fail an
+            # export: the page simply renders without the block.
+            from deeptutor.review import figures as figure_source
+
+            try:
+                book_figures = figure_source.pack_for_title(spec.title)
+            except Exception:  # noqa: BLE001 - figures are additive, never fatal
+                book_figures = None
         moment = time.time() if now is None else now
         states = states_for_spec(
             spec, self.store, now=moment,
@@ -1147,4 +1160,5 @@ class ReviewService:
             quality_state=record["state"],
             anchors=self.store.anchors_for_spec(spec.id, spec.content_hash),
             read_only=self.store.read_only,
+            book_figures=book_figures,
         )

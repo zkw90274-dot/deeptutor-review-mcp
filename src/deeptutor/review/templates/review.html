@@ -363,7 +363,7 @@ footer{margin:28px 0 0;color:var(--muted);font-size:.82rem;line-height:1.7}
   </div>
   <button type="button" class="ghost" id="complete-top">回到第一题</button>
 </section>
-<footer id="footer"></footer>
+{{BOOK_FIGURES}}<footer id="footer"></footer>
 <noscript><p>此离线复习页需要启用 JavaScript 才能展开答案与自评。</p></noscript>
 </main>
 <script>
@@ -1632,7 +1632,8 @@ window.__REVIEW__ = {{PAYLOAD}};
       return;
     }
     var run = function () {
-      var nodes = Array.prototype.slice.call(root.querySelectorAll(".math,.formula-latex,.widget-formula"));
+      // Figure captions sit outside #sections: scan the page.
+      var nodes = Array.prototype.slice.call(document.querySelectorAll(".math,.formula-latex,.widget-formula"));
       var progress = null;
       if (nodes.length > 128) {
         progress = el("p", "callout", "正在排版公式：0 / " + nodes.length);

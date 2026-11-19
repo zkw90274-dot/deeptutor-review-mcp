@@ -74,11 +74,13 @@ def read_book(path: Path) -> dict[str, dict[str, object]]:
         if not number or str(parsed.get("data-appendix") or "") == "1":
             continue
         figures = []
-        for _name, block in FIGURE.findall(body):
+        for name, block in FIGURE.findall(body):
             caption = CAPTION.search(block)
             text = _clean(caption.group(1)) if caption else ""
             if text:
-                figures.append({"label": _label(text), "caption": text})
+                # The name keys the book's FIGURES map, so an exporter can
+                # inline the drawing instead of only linking to the section.
+                figures.append({"name": name, "label": _label(text), "caption": text})
         if not figures:
             continue
         out[number] = {
@@ -135,7 +137,11 @@ def build(home: Path, verbose: bool = False) -> dict[str, object]:
                     hit = found.get(number)
                     if hit and str(hit["title"]) == title and number not in rows:
                         rows[number] = [
-                            {"label": figure["label"], "caption": figure["caption"]}
+                            {
+                                "name": figure.get("name", ""),
+                                "label": figure["label"],
+                                "caption": figure["caption"],
+                            }
                             for figure in hit["figures"]
                         ]
         if rows:

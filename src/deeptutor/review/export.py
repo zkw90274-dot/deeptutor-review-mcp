@@ -75,6 +75,9 @@ MATHJAX_CONFIG = (
 _MATH_PATTERN = re.compile(
     r"\$\$[\s\S]+?\$\$|\$[^$]+?\$|\\\([\s\S]+?\\\)|\\\[[\s\S]+?\\\]"
 )
+#: ``re.split`` drops unmatched text when the pattern has no group; the caption
+#: renderer needs the math runs kept *in* the output, so wrap the same pattern.
+_CAPTURED_MATH = re.compile(f"({_MATH_PATTERN.pattern})")
 
 
 def _needs_mathjax(payload: dict[str, Any]) -> bool:
@@ -223,6 +226,179 @@ def _item_payload(spec: ReviewSpec, item: Item) -> dict[str, Any]:
         "source_ids": item.source_ids,
         "concept_ids": item.concept_ids,
     }
+
+
+#: Styles for the end-of-page figure block. They travel inside the block
+#: rather than the shared <style>, so a page without figures carries no rules
+#: for a section it does not have.
+BOOK_FIGURES_CSS = (
+    # Drawing palette copied from the living book, scoped to this block: the
+    # book's SVGs paint with style="stroke:var(--fig-accent)", which resolves
+    # through inheritance, and a page without the block never sees the tokens.
+    ".book-figures{--fig-ink:#14161a;--fig-muted:#5f6673;--fig-grid:#dfe2e8;"
+    "--fig-accent:#0d6e64;--fig-blue:#2f5fd0;--fig-warm:#a55a06;--fig-red:#c33b3b;"
+    "--fig-green:#1d7a4f;margin:28px 0 0;padding:22px 24px;background:var(--card);"
+    "border:1px solid var(--hairline);border-radius:var(--radius);"
+    "box-shadow:var(--shadow),var(--card-highlight)}"
+    'html[data-theme="dark"] .book-figures{--fig-ink:#eef0f3;--fig-muted:#9aa1ad;'
+    "--fig-grid:#23262c;--fig-accent:#4fd1c0;--fig-blue:#8fb0ff;--fig-warm:#e8b063;"
+    "--fig-red:#f08a84;--fig-green:#6fdaa6}"
+    "@media (prefers-color-scheme: dark){html:not([data-theme=\"light\"]) .book-figures{"
+    "--fig-ink:#eef0f3;--fig-muted:#9aa1ad;--fig-grid:#23262c;--fig-accent:#4fd1c0;"
+    "--fig-blue:#8fb0ff;--fig-warm:#e8b063;--fig-red:#f08a84;--fig-green:#6fdaa6}}"
+    ".book-figures h2{font-size:1.05rem;line-height:1.4;margin:0 0 6px}"
+    ".book-figures-lede{margin:0 0 12px;color:var(--muted);font-size:.86rem;line-height:1.7}"
+    ".book-figures ol,.book-figures ul{margin:0;padding:0;list-style:none;display:grid;"
+    "grid-template-columns:minmax(0,1fr);gap:10px}"
+    ".book-figures ol,.book-figures .fig-list{gap:18px}"
+    ".book-figures ol>li{padding-top:10px;border-top:1px solid var(--hairline);min-width:0}"
+    ".book-figures ol>li:first-child{border-top:0;padding-top:0}"
+    ".book-figures .section-no{display:inline-block;min-width:3.2em;"
+    "font-variant-numeric:tabular-nums;font-weight:650;color:var(--accent)}"
+    ".book-figures .section-title{font-weight:600}"
+    ".book-figures h3.section-head{font-size:.93rem;line-height:1.5;margin:0 0 10px;"
+    "letter-spacing:0;color:var(--muted);font-weight:600}"
+    ".book-figures ul{gap:2px;margin-top:6px;font-size:.88rem;line-height:1.6}"
+    ".book-figures ul a{display:inline-block;padding:3px 0;color:var(--muted);text-decoration:none}"
+    ".book-figures ul a:hover,.book-figures ul a:focus-visible{color:var(--accent);text-decoration:underline}"
+    ".book-figures ul a b{color:var(--ink);margin-right:4px}"
+    # One drawing per figure, sized the way the book sizes it: the SVG scales
+    # to the column and the caption sits under it, centered.
+    ".book-figure{margin:0;padding:14px 14px 10px;border:1px solid var(--hairline);"
+    "border-radius:var(--radius-inner);background:var(--card-soft);text-align:center;"
+    "min-width:0}"
+    ".book-figure>svg{display:block;width:100%;height:auto;margin:0 auto}"
+    ".book-figure figcaption{margin:10px 0 0;font-size:.84rem;line-height:1.65;"
+    "color:var(--muted);text-align:center}"
+    ".book-figure figcaption b{color:var(--ink);font-weight:650;margin-right:6px}"
+    "@media (max-width:640px){.book-figure{overflow-x:auto;padding:10px 10px 8px}"
+    ".book-figure>svg{min-width:520px}}"
+    "@media print{"
+    # The block's palette is lighter ink on paper, matching the template's
+    # print reset; a dark-theme page must not print dark drawings.
+    ".book-figures{--fig-ink:#14161a;--fig-muted:#5f6673;--fig-grid:#dfe2e8;"
+    "--fig-accent:#0d6e64;--fig-blue:#2f5fd0;--fig-warm:#a55a06;--fig-red:#c33b3b;"
+    "--fig-green:#1d7a4f;break-before:page;page-break-before:always;box-shadow:none;"
+    "border-radius:0;padding:0;border:0;background:#fff}"
+    ".book-figure{break-inside:avoid;page-break-inside:avoid;border-radius:0;background:#fff}"
+    ".book-figure>svg{min-width:0;max-height:215mm}"
+    "}"
+)
+
+
+def _without_label(caption: str, label: str) -> str:
+    """The caption without the printed figure number it already starts with."""
+    if label and caption.startswith(label):
+        rest = caption[len(label):].lstrip(" \u3000:：·")
+        return rest or caption
+    return caption
+
+
+def _caption_html(label: str, caption: str) -> str:
+    """A caption with its math runs wrapped for the page's typesetter.
+
+    The book prints captions as text and lets MathJax find ``$…$``/``\\(…\\)``;
+    a pack does the same, but only the wrapped runs are registered, so the
+    typesetter never walks the drawings. Without JavaScript the delimiters stay
+    readable as text.
+    """
+    parts: list[str] = []
+    for part in _CAPTURED_MATH.split(_without_label(caption, label)):
+        if not part:
+            continue
+        if _CAPTURED_MATH.fullmatch(part):
+            parts.append(f'<span class="math">{html.escape(part)}</span>')
+        else:
+            parts.append(html.escape(part))
+    head = f"<b>{html.escape(label)}</b>" if label else ""
+    return head + (" " if head and parts else "") + "".join(parts)
+
+
+def _book_figures_html(book_figures: dict[str, Any] | None) -> str:
+    """This chapter's living-book diagrams, inlined at the end of the page.
+
+    A pack that owns the drawings prints them the way the book does: static
+    ``<figure>``/``<figcaption>`` pairs with the prepared SVG inlined, so the
+    page needs no script and no second file. Figures the caller could only
+    name (no SVG available) fall back to the relative link block, because a
+    link to the book beats a silent gap. An empty block renders nothing.
+    """
+    if not book_figures:
+        return ""
+    sections = [
+        section
+        for section in (book_figures.get("sections") or [])
+        if isinstance(section, dict) and section.get("figures")
+    ]
+    if not sections:
+        return ""
+    href = html.escape(str(book_figures.get("href") or ""), quote=True)
+    rows: list[str] = []
+    drawn = 0
+    for section in sections:
+        number = html.escape(str(section.get("no") or ""), quote=True)
+        title = html.escape(str(section.get("title") or ""), quote=True)
+        anchor = html.escape(str(section.get("anchor") or ""), quote=True)
+        figures: list[str] = []
+        for figure in section["figures"]:
+            if not isinstance(figure, dict):
+                continue
+            label = str(figure.get("label") or "")
+            caption = str(figure.get("caption") or "")
+            svg = figure.get("svg")
+            if isinstance(svg, str) and svg.lstrip().startswith("<svg"):
+                drawn += 1
+                figures.append(
+                    '<figure class="book-figure">'
+                    + svg
+                    + "<figcaption>"
+                    + _caption_html(label, caption)
+                    + "</figcaption></figure>"
+                )
+            elif href:
+                figures.append(
+                    '<li><a href="{href}{hash}"><b>{label}</b> {caption}</a></li>'.format(
+                        href=href,
+                        hash="#" + anchor if anchor else "",
+                        label=html.escape(label or "插图"),
+                        # The caption the book prints already opens with its
+                        # number; repeating it after the label is a stutter.
+                        caption=html.escape(_without_label(caption, label)),
+                    )
+                )
+        if not figures:
+            continue
+        if not drawn:
+            rows.append(
+                "<li><span class='section-no'>{number}</span>"
+                "<span class='section-title'>{title}</span>"
+                "<ul>{figures}</ul></li>".format(
+                    number=number, title=title, figures="".join(figures)
+                )
+            )
+        else:
+            rows.append(
+                "<li><h3 class='section-head'><span class='section-no'>{number}</span>"
+                "{title}</h3><div class='fig-list'>{figures}</div></li>".format(
+                    number=number, title=title, figures="".join(figures)
+                )
+            )
+    if not rows:
+        return ""
+    book = html.escape(str(book_figures.get("book") or ""), quote=True)
+    lede = (
+        f"以下 {drawn} 幅插图取自活书《{book}》，已随本页内嵌，断网也能看。"
+        if drawn
+        else f"插图在活书《{book}》里，点开跳到对应小节；复习包本身只收题目。"
+    )
+    return (
+        f"<style>{BOOK_FIGURES_CSS}</style>"
+        '<section class="book-figures" id="book-figures" aria-labelledby="book-figures-title">'
+        '<h2 id="book-figures-title">本章相关插图</h2>'
+        f'<p class="book-figures-lede">{lede}</p>'
+        f"<ol>{''.join(rows)}</ol>"
+        "</section>"
+    )
 
 
 def _safe_json(payload: Any) -> str:
@@ -530,6 +706,7 @@ def build_html(
     quality_state: str | None = None,
     anchors: dict[str, Any] | None = None,
     read_only: bool = False,
+    book_figures: dict[str, Any] | None = None,
 ) -> str:
     if not quality.passed:
         raise ValueError("refusing to export a spec that failed QA gates")
@@ -552,6 +729,10 @@ def build_html(
         concept_graph=concept_graph,
     )
     needs_mathjax = _needs_mathjax(payload)
+    # A figure caption can carry math the pack itself never mentions; the page
+    # typesets those runs too, so the renderer has to ship for them.
+    figures_html = _book_figures_html(book_figures)
+    needs_mathjax = needs_mathjax or 'class="math"' in figures_html
     payload["quality_watermark"] = "未人工复核" if quality_state in {"draft", "legacy"} else None
     payload["anchors"] = anchors or {}
     if not needs_mathjax:
@@ -569,6 +750,7 @@ def build_html(
         template.count("{{TITLE}}") != 1
         or template.count("{{PAYLOAD}}") != 1
         or template.count("{{MATHJAX}}") != 1
+        or template.count("{{BOOK_FIGURES}}") != 1
     ):
         raise ValueError("template token drift in export")
     # Replace the template's MathJax token with a per-render sentinel *before*
@@ -583,6 +765,7 @@ def build_html(
     rendered = (
         template.replace("{{TITLE}}", title_html)
         .replace("{{MATHJAX}}", mathjax_sentinel)
+        .replace("{{BOOK_FIGURES}}", figures_html)
         .replace("{{PAYLOAD}}", payload_json)
     )
     # Do not scan the rendered page for braces: learner content is allowed to

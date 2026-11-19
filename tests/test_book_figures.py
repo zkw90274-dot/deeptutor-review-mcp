@@ -82,7 +82,16 @@ def test_build_joins_books_onto_planned_chapters(tmp_path: Path) -> None:
     )
     payload = _script_module().build(tmp_path)
     assert set(payload["books"]) == {"微机"}
-    assert payload["chapters"] == {"第2讲": {"2.1": [{"label": "图 2-1", "caption": "图 2-1 8088 的 40 个引脚"}, {"label": "图 2-2", "caption": "图 2-2 最小模式"}]}}
+    # The row carries ``name`` because it keys the book's FIGURES map, which is
+    # what lets an exporter inline the drawing instead of only linking to it.
+    assert payload["chapters"] == {
+        "第2讲": {
+            "2.1": [
+                {"name": "fig_pinout", "label": "图 2-1", "caption": "图 2-1 8088 的 40 个引脚"},
+                {"name": "fig_minmode", "label": "图 2-2", "caption": "图 2-2 最小模式"},
+            ]
+        }
+    }
 
 
 INDEX = {
