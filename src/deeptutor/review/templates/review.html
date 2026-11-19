@@ -174,9 +174,9 @@ body[data-mode="deep"] .self-explain,body[data-mode="deep"] .self-explain-label{
    explanation. Print re-enables the options with !important. */
 body[data-mode="quick"] .options,body[data-mode="quick"] .ratings{display:none}
 /* Per-item answer toggle: only meaningful while the answers are hidden. */
-.item-actions{display:flex;gap:8px;margin-top:12px}
-.reveal-toggle{min-height:40px;padding:6px 14px;font-size:.9rem;color:var(--muted);background:transparent}
-.reveal-toggle:hover{color:var(--ink)}
+.item-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.reset-item,.reveal-toggle{min-height:40px;padding:6px 14px;font-size:.9rem;color:var(--muted);background:transparent}
+.reset-item:hover,.reveal-toggle:hover{color:var(--ink)}
 body:not([data-mode="selftest"]) .item-actions{display:none}
 .ratings{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:16px}
 .ratings span.hint{font-size:.85rem;color:var(--muted);margin-right:2px}
@@ -269,6 +269,7 @@ footer{margin:28px 0 0;color:var(--muted);font-size:.82rem;line-height:1.7}
   .item{padding:16px 18px 14px;margin-bottom:12px}
   .option{padding:9px 12px}
   .toolbar,.ratings,.correction,button:not(.option){display:none !important}
+  .item-actions{display:none !important}
   .session-dock,.theme-toggle,.complete,.start-review,.kbd-help,.hero-actions,.mode-switch{display:none !important}
   body[data-mode] .options{display:grid !important}
   .option{display:flex !important;background:#fff !important;color:#000 !important}
@@ -858,9 +859,6 @@ window.__REVIEW__ = {{PAYLOAD}};
   function renderItem(item) {
     var article = el("article", "item");
     article.setAttribute("data-item-id", item.id);
-    // The article itself is the keyboard entry point for the item: Enter
-    // reveals the answer, Esc collapses it again. Keeping it focusable is
-    // additive and leaves the inner buttons on their native Tab order.
     article.setAttribute("tabindex", "0");
     article.setAttribute("aria-keyshortcuts", "Enter Escape");
     var itemNumber = ++renderItem.counter;
@@ -902,6 +900,13 @@ window.__REVIEW__ = {{PAYLOAD}};
     article.appendChild(stem);
 
     var optionNodes = [];
+    function selectOption(index) {
+      optionNodes.forEach(function (node, position) {
+        var selected = position === index;
+        node.classList.toggle("selected", selected);
+        node.setAttribute("aria-pressed", String(selected));
+      });
+    }
     if ((item.options || []).length) {
       var options = el("div", "options");
       options.setAttribute("role", "group");
@@ -915,12 +920,7 @@ window.__REVIEW__ = {{PAYLOAD}};
         appendRich(body, option.text);
         button.appendChild(body);
         button.addEventListener("click", function () {
-          options.querySelectorAll(".option").forEach(function (node) {
-            node.classList.remove("selected");
-            node.setAttribute("aria-pressed", "false");
-          });
-          button.classList.add("selected");
-          button.setAttribute("aria-pressed", "true");
+          selectOption(index);
           answers[item.id] = index;
         });
         optionNodes.push(button);
@@ -995,9 +995,6 @@ window.__REVIEW__ = {{PAYLOAD}};
       }
       answer.appendChild(aidBox);
     }
-    // Mouse users had no per-item way to check their answer: Enter works only
-    // from the keyboard and 显示全部答案 reveals every item at once. The toggle
-    // sits right above the answer so it stays next to what it opens.
     var actions = el("div", "item-actions");
     var revealToggle = el("button", "reveal-toggle", "看答案");
     revealToggle.type = "button";
@@ -1006,6 +1003,9 @@ window.__REVIEW__ = {{PAYLOAD}};
       article.dispatchEvent(new Event(answer.hidden ? "reveal" : "hide"));
     });
     actions.appendChild(revealToggle);
+    var resetItem = el("button", "reset-item", "重做本题");
+    resetItem.type = "button";
+    actions.appendChild(resetItem);
     article.appendChild(actions);
 
     article.appendChild(answer);
@@ -1088,13 +1088,14 @@ window.__REVIEW__ = {{PAYLOAD}};
     ratings.appendChild(el("span", "hint", "自评（离线记录，用于本页回顾；快捷键 1 / 2 / 3）："));
     var status = el("span", "status", "");
     status.setAttribute("aria-live", "polite");
+    function markRating(value) {
+      ratings.querySelectorAll(".rating").forEach(function (node) {
+        node.setAttribute("aria-pressed", String(node.getAttribute("data-rating") === value));
+      });
+    }
     function rate(value) {
       var ok = setStored(item.id, value);
-      ratings.querySelectorAll(".rating").forEach(function (node) {
-        node.setAttribute("aria-pressed", "false");
-      });
-      var pressed = ratings.querySelector('.rating[data-rating="' + value + '"]');
-      if (pressed) pressed.setAttribute("aria-pressed", "true");
+      markRating(value);
       var message = ok ? "已记录到本机浏览器" : "已记录（本页临时，localStorage 不可用）";
       if (value === "good") message = "稳了 · " + message;
       else if (value === "hard") message = "有点模糊 · " + message;
@@ -1117,16 +1118,34 @@ window.__REVIEW__ = {{PAYLOAD}};
       button.type = "button";
       button.setAttribute("data-rating", triple[0]);
       button.setAttribute("aria-keyshortcuts", triple[2]);
-      button.setAttribute("aria-pressed", "false");
-      var saved = getStored(item.id);
-      if (saved === triple[0]) button.setAttribute("aria-pressed", "true");
       button.addEventListener("click", function () {
         rate(triple[0]);
       });
       ratings.appendChild(button);
     });
+    markRating(getStored(item.id));
     ratings.appendChild(status);
     article.appendChild(ratings);
+
+    resetItem.addEventListener("click", function () {
+      delete answers[item.id];
+      delete memory[item.id];
+      try {
+        window.localStorage.removeItem(storageKey + ":" + item.id);
+      } catch (err) {}
+      selectOption(null);
+      markRating(null);
+      status.textContent = "";
+      article.classList.remove("rated");
+      if (correctionBox) {
+        correctionBox.querySelectorAll(".correction-option").forEach(function (node) {
+          node.classList.remove("correct", "wrong");
+        });
+        correctionBox.querySelector(".feedback").textContent = "";
+      }
+      article.dispatchEvent(new Event("hide"));
+      refreshSession(false);
+    });
 
     article.addEventListener("keydown", function (event) {
       if (event.defaultPrevented || event.isComposing) return;

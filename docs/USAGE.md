@@ -143,6 +143,8 @@ python -m deeptutor.review.mcp_server --transport streamable-http
 
 工具行为与参数的完整说明见 [SKILL.md](https://github.com/zkw90274-dot/deeptutor-review-mcp/blob/main/docs/skill/SKILL.md)。
 
+> 离线复习页在自测模式下每题有「重做本题」：只清除该题的本地选择与自评，不会删除服务端复习历史；速览、精读和打印时不显示。
+
 ## 5. 第一场复习
 
 1. 在核心知识库里准备好材料（PDF/Markdown 均可，走核心的入库流程）。
