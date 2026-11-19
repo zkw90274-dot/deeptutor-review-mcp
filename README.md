@@ -123,7 +123,7 @@ deeptutor-review-mcp --check
 |---|---|
 | 包版本 | `1.7.3` |
 | wheel build | `3` |
-| 当前 `main` | 20 工具、schema v9（R4–R6） |
+| 当前 `main` | 20 工具、schema v9、导出页支持单题重做 |
 | 最近 release | `v1.7.3-r3`（旧工具面） |
 | 兼容核心 | DeepTutor `1.7.3` |
 | Python | `3.11+` |
@@ -418,6 +418,7 @@ DeepTutor 网页端也可以直接走 REST：
 | 安装、配置、备份、排错 | [docs/USAGE.md](docs/USAGE.md) |
 | 题包生命周期、质量门禁、计划、导出 | [docs/usage-guide.md](docs/usage-guide.md) |
 | Agent 调用协议与复习流程 | [docs/skill/SKILL.md](docs/skill/SKILL.md) |
+| 活书配图 Skill 与导入方法 | [interactive-study-book-svg](skills/interactive-study-book-svg/SKILL.md) · [Skill 安装说明](docs/skill/README.md) |
 | 设计不变量与发布步骤 | [docs/maintainer-notes.md](docs/maintainer-notes.md) |
 | 安全策略 | [SECURITY.md](SECURITY.md) |
 | 变更记录 | [CHANGELOG.md](CHANGELOG.md) |
