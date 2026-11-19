@@ -29,7 +29,7 @@ pip install .        # 在本仓库根目录；不要用 -e
 ```bash
 # 在本仓库根目录
 python -m pip wheel . --no-deps -w dist
-python -m pip install --force-reinstall --no-deps dist/deeptutor_review-1.7.3-3-py3-none-any.whl
+python -m pip install --force-reinstall --no-deps dist/deeptutor_review-1.7.3-8-py3-none-any.whl
 ```
 
 ### 1.3 从当前 main 构建
@@ -38,7 +38,7 @@ python -m pip install --force-reinstall --no-deps dist/deeptutor_review-1.7.3-3-
 
 ```bash
 python -m pip wheel . --no-deps -w dist
-python -m pip install --force-reinstall --no-deps dist/deeptutor_review-1.7.3-3-py3-none-any.whl
+python -m pip install --force-reinstall --no-deps dist/deeptutor_review-1.7.3-8-py3-none-any.whl
 ```
 
 已经有 DeepTutor 1.7.3 环境时，安装时加 `--no-deps`，避免 pip 改动核心版本。
@@ -135,8 +135,8 @@ python -m deeptutor.review.mcp_server --transport streamable-http
 | `review_session_plan` | 只读预览跨包复习队列，默认 60 分钟、最多 12 题 |
 | `review_artifact_status` | 只读检查题包与活书的章节指纹，支持 `spec_id` 和 `subject` 筛选 |
 | `review_weakness` | 只读薄弱概念排序，不写库 |
-| `review_export_link` | 单文件离线 HTML 链接 |
-| `review_export_tree` | 按科目导出复习包和 `index.html`。遇同名旧版或个人 HTML 时保留原文件，请换新目录。 |
+| `review_export_link` | 单文件离线 HTML 链接（内嵌本章活书插图） |
+| `review_export_tree` | 按科目导出复习包和 `index.html`，每页内嵌本章活书插图。遇同名旧版或个人 HTML 时保留原文件，请换新目录。 |
 | `review_book_figures` | 活书插图索引：哪一节有哪几张图（按科目 / 计划章过滤），只读 |
 | `review_generate` | 从知识库某一章生成新包，开始或查进度时可传 `wait_seconds`（`0`–`60`，默认 `0`） |
 | `review_plan` | 多周计划：create/today/complete/replan/confirm_note/status/sync_calendar |

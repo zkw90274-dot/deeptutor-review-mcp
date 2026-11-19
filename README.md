@@ -115,15 +115,15 @@ pip install "git+https://github.com/zkw90274-dot/deeptutor-review-mcp.git@main"
 
 ```bash
 python -m pip wheel . --no-deps -w dist
-python -m pip install --force-reinstall --no-deps dist/deeptutor_review-1.7.3-3-py3-none-any.whl
+python -m pip install --force-reinstall --no-deps dist/deeptutor_review-1.7.3-8-py3-none-any.whl
 deeptutor-review-mcp --check
 ```
 
 | 版本项 | 值 |
 |---|---|
 | 包版本 | `1.7.3` |
-| wheel build | `3` |
-| 当前 `main` | 20 工具、schema v9、导出页支持单题重做 |
+| wheel build | `8` |
+| 当前 `main` | 20 工具、schema v9、导出页支持单题重做并内嵌本章活书插图 |
 | 最近 release | `v1.7.3-r3`（旧工具面） |
 | 兼容核心 | DeepTutor `1.7.3` |
 | Python | `3.11+` |
@@ -242,8 +242,8 @@ Agent 的职责是提问、记录和解释结果；**不要让它替你回答，
 | `review_session_plan` | 用统一的时间和题量预算预览跨包复习 | 无 | 只读本机 Mastery 快照 |
 | `review_artifact_status` | 检查题包与活书的章节指纹 | 无 | 只读本机 manifest |
 | `review_weakness` | 按历史证据排最弱概念 | 无 | 无 |
-| `review_export_link` | 返回单包打印页 URL | 无 | DeepTutor 网页端 |
-| `review_export_tree` | 整库导出为 `<subject>/<chapter>.html` + `index.html` | 写文件 | 无 |
+| `review_export_link` | 返回单包打印页 URL；页面内嵌本章活书插图（静态 SVG） | 无 | DeepTutor 网页端 |
+| `review_export_tree` | 整库导出为 `<subject>/<chapter>.html` + `index.html`，每页内嵌本章活书插图 | 写文件 | 无 |
 | `review_book_figures` | 查活书某节有哪些插图 | 无 | 无 |
 | `review_generate` | 从知识库一章生成题包，可用 `wait_seconds` 等待结果 | 写题包 | 模型 + 知识库 |
 | `review_plan` | 多周学习计划，镜像到日历/看板 | 写计划、日历；确认笔记时写笔记 | 知识库；草拟笔记可能用模型 |
