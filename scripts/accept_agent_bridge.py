@@ -43,7 +43,19 @@ import tempfile
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]
+def _repo_root() -> Path:
+    here = Path(__file__).resolve()
+    for candidate in here.parents[1:]:
+        if (candidate / "data").is_dir():
+            return candidate
+        if (candidate / "pyproject.toml").is_file() and (
+            candidate / "src" / "deeptutor" / "review"
+        ).is_dir():
+            return candidate
+    return here.parents[1]
+
+
+ROOT = _repo_root()
 SRC = Path(__file__).resolve().parents[1] / "src"
 GOLDEN_JSON = Path(__file__).resolve().parents[1] / "tests" / "golden" / "golden-formula.json"
 

@@ -9,8 +9,16 @@ import pytest
 
 @pytest.fixture
 def publisher():
-    script = Path(__file__).resolve().parents[3] / "scripts" / "publish_public.py"
-    if not script.is_file():
+    here = Path(__file__).resolve()
+    script = next(
+        (
+            candidate
+            for candidate in (parent / "scripts" / "publish_public.py" for parent in here.parents)
+            if candidate.is_file()
+        ),
+        None,
+    )
+    if script is None:
         pytest.skip("publisher is maintained in the development repository")
     spec = importlib.util.spec_from_file_location("publish_public", script)
     assert spec is not None and spec.loader is not None

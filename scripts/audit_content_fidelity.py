@@ -63,7 +63,19 @@ from typing import Any
 # The product helpers are optional: every one of them has a local fallback so
 # the audit still runs if the module layout drifts.
 
-ROOT = Path(__file__).resolve().parents[3]
+def _repo_root() -> Path:
+    here = Path(__file__).resolve()
+    for candidate in here.parents[1:]:
+        if (candidate / "data").is_dir():
+            return candidate
+        if (candidate / "pyproject.toml").is_file() and (
+            candidate / "src" / "deeptutor" / "review"
+        ).is_dir():
+            return candidate
+    return here.parents[1]
+
+
+ROOT = _repo_root()
 SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))

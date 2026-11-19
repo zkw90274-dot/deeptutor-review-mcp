@@ -96,7 +96,9 @@ def test_wheel_ships_skill_md() -> None:
     name = "deeptutor/review/skill/SKILL.md"
     records = _installed_distribution().files or ()
     assert name in {record.as_posix() for record in records}
-    assert _installed_path(name).read_bytes() == files("deeptutor.review").joinpath("skill", "SKILL.md").read_bytes()
+    assert _installed_path(name).read_bytes().replace(b"\r\n", b"\n") == files(
+        "deeptutor.review"
+    ).joinpath("skill", "SKILL.md").read_bytes().replace(b"\r\n", b"\n")
 
 
 def test_module_catalog_still_resolves_to_the_installed_distribution() -> None:
