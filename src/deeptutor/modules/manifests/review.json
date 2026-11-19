@@ -2,6 +2,15 @@
   "schema_version": 1,
   "id": "review",
   "distribution": "deeptutor-review",
+  "mcp": {
+    "structured_output_tools": ["review_quality", "review_metrics", "review_artifact_status"],
+    "resources": {
+      "review://book-figures": "application/json"
+    },
+    "resource_templates": {
+      "review://spec/{spec_id}/export": "text/html"
+    }
+  },
   "requires": [
     "mastery"
   ],
@@ -51,6 +60,42 @@
     "review_book_figures": {
       "class_path": "deeptutor.review.agent_tools:ReviewBookFiguresTool",
       "order": 68
+    },
+    "review_reveal": {
+      "class_path": "deeptutor.review.agent_tools:ReviewRevealTool",
+      "order": 104
+    },
+    "review_quality": {
+      "class_path": "deeptutor.review.agent_tools:ReviewQualityTool",
+      "order": 105
+    },
+    "review_quality_decision": {
+      "class_path": "deeptutor.review.agent_tools:ReviewQualityDecisionTool",
+      "order": 112
+    },
+    "review_correct": {
+      "class_path": "deeptutor.review.agent_tools:ReviewCorrectTool",
+      "order": 106
+    },
+    "review_metrics": {
+      "class_path": "deeptutor.review.agent_tools:ReviewMetricsTool",
+      "order": 107
+    },
+    "review_session": {
+      "class_path": "deeptutor.review.agent_tools:ReviewSessionTool",
+      "order": 108
+    },
+    "review_link": {
+      "class_path": "deeptutor.review.agent_tools:ReviewLinkTool",
+      "order": 109
+    },
+    "review_session_plan": {
+      "class_path": "deeptutor.review.agent_tools:ReviewSessionPlanTool",
+      "order": 110
+    },
+    "review_artifact_status": {
+      "class_path": "deeptutor.review.agent_tools:ReviewArtifactStatusTool",
+      "order": 111
     }
   },
   "routes": [

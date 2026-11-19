@@ -9,6 +9,7 @@ than a second parser, so a format change in the service is caught here.
 from __future__ import annotations
 
 from pathlib import Path
+from importlib.resources import files
 
 from deeptutor.services.skill.hub import read_skill_metadata
 
@@ -19,6 +20,7 @@ SKILL_MD = SKILL_DIR / "SKILL.md"
 
 TOOL_NAMES = (
     "review_specs",
+    "review_due",
     "review_today",
     "review_attempt",
     "review_weakness",
@@ -28,6 +30,14 @@ TOOL_NAMES = (
     "review_generate",
     "review_hint",
     "review_plan",
+    "review_reveal",
+    "review_quality",
+    "review_correct",
+    "review_metrics",
+    "review_session",
+    "review_link",
+    "review_session_plan",
+    "review_artifact_status",
 )
 
 
@@ -47,6 +57,10 @@ def _body() -> str:
 
 def test_skill_md_exists() -> None:
     assert SKILL_MD.is_file(), f"missing skill package: {SKILL_MD}"
+
+
+def test_skill_doc_sync() -> None:
+    assert files("deeptutor.review").joinpath("skill", "SKILL.md").read_bytes() == SKILL_MD.read_bytes()
 
 
 def test_frontmatter_required_keys() -> None:

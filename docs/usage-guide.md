@@ -144,22 +144,34 @@ deptutor stop
 
 **边界**：只识别整天拖动；单任务拖动、跨天拆分、拖到过去都不回写；目标日已有任务时**拒绝合并**，避免两天工作量叠一起。
 
-## 7. 十一个工具速查
+## 7. 二十个工具速查
 
 | 工具 | 什么时候用 | 关键参数 |
 |---|---|---|
 | `review_specs` | 看有哪些复习包 | 可选 `limit`、`offset` |
 | `review_due` | 跨包看今日待练题量，保留会话状态 | 可选 `subject`、`limit`、`offset` |
 | `review_today` | 今天该复习什么 | `spec_id` |
-| `review_attempt` | 记录自评 | `spec_id, item_id, rating, session_id` |
-| `review_hint` | 卡住了要提示 | `spec_id, item_id, level(1 概念方向 / 2 定义公式)` |
+| `review_attempt` | 记录自评和可选客观判分 | `spec_id, item_id, rating, session_id, answer, elapsed_ms` |
+| `review_hint` | 卡住了要提示 | `spec_id, item_id, session_id, level` |
+| `review_reveal` | 揭示已作答题目的反馈 | `spec_id, event_id` |
+| `review_quality` | 查看来源匹配、审核记录和门禁 | `spec_id, refresh` |
+| `review_quality_decision` | 人工 verify/reject/reset 题包状态并记录审核历史 | `spec_id, decision, note?` |
+| `review_correct` | 修订单题，保留历史 | `spec_id, item_id, patch` |
+| `review_metrics` | 查看会话完成率、自评校准和正确率 | `spec_id, days` |
+| `review_session` | 查询或结束会话 | `action, spec_id, session_id` |
+| `review_link` | 查询或修改 Mastery 绑定，重试待回填事件 | `action, spec_id`，绑定另需 `concept_id, mastery_path_id, knowledge_point_id` |
+| `review_session_plan` | 只读预览跨包复习队列 | 可选 `spec_ids, daily_minutes, limit, include_draft` |
+| `review_artifact_status` | 比较题包和活书的章节指纹 | 可选 `spec_id, subject` |
 | `review_weakness` | 哪些概念最弱 | `spec_id` |
 | `review_export_link` | 要导出链接 | `spec_id` |
 | `review_export_tree` | 要整批分类导出 | `out_dir`（省略用 `<review home>/exports`）、`subjects`（省略＝全部科目） |
 | `review_book_figures` | 查活书插图在哪一节 | `subject`（省略＝全部）、`chapter`（计划章名，省略） |
-| `review_generate` | 生成新包 | `kb`（列章节）→ `kb+chapter`（开始）→ `kb+job_id`（轮询） |
+| `review_generate` | 生成新包 | `kb`（列章节）→ `kb+chapter`（开始）→ `kb+job_id`（轮询），后两种可加 `wait_seconds`（`0`–`60`，默认 `0`） |
 | `review_plan` | 学习计划 | `action` = create / today / complete / replan / confirm_note / status / sync_calendar |
 
+活书 manifest 默认为 `<review home>/book-manifest.json`，可用 `DEEPTUTOR_REVIEW_BOOK_MANIFEST` 指定。JSON 须包含 `schema_version: 1` 和 `books` 数组，每条记录包含 `subject`、`chapter`、`fingerprint`、`generated_at`，可选 `spec_id`。工具优先按 `spec_id` 匹配，其次按科目与章名匹配。指纹计算为 `sha256(UTF-8(kb + chapter) + 章节原始文件字节)`，多文件按文件名排序拼接。工具只读返回 `match`、`drift` 或 `unknown` 及原因。旧包缺少入库指纹时报告 `unknown`。
+
+跨包预览默认使用 60 分钟、最多 12 题。到期题优先，每组按科目轮转。`selected` 是本次预算内安排，`filtered_backlog` 和 `library_backlog` 分别统计所选题包及全库合格包的待办。按预览开始某一包时，先调用 `review_today` 获取当前题目和会话 ID。草稿需要显式选择。
 提示阶梯：先给 1 级（方向），不够再给 2 级（定义/公式）。用了提示会在评分里体现，用于校准。
 
 ## 8. 导出与打印
@@ -248,6 +260,8 @@ deptutor stop
 
 ## 附录 C：MCP 接入
 
+`review_quality`、`review_metrics`、`review_artifact_status` 提供 `outputSchema`、`structuredContent` 和内容一致的 JSON 文本。支持资源的客户端可读取 `review://book-figures`（JSON 插图索引）和 `review://spec/{spec_id}/export`（HTML 离线题包）。导出资源通过质量门禁后在内存中生成，上限 8,000,000 字节。TikZ 图会显示占位提示。
+
 ```bash
 # stdio（Claude Code / 本机客户端）
 python -m deeptutor.review.mcp_server
@@ -256,7 +270,7 @@ python -m deeptutor.review.mcp_server
 python -m deeptutor.review.mcp_server --transport streamable-http
 ```
 
-MCP 客户端可以连接 stdio 或 Streamable HTTP。11 个工具包含 `review_plan` 和跨包只读汇总 `review_due`。
+MCP 客户端可以连接 stdio 或 Streamable HTTP。逐题调用 `review_attempt` 后，用 `review_reveal` 取反馈。会话默认允许 20 次揭示。旧包带来源警告，草稿需要在 `review_today` 或 `review_due` 显式传 `include_draft=true`。
 商店补丁（`deeptutor-review-catalog`）已移到实验目录，不随公开包发布。
 
 ## 附录 D：相关文档

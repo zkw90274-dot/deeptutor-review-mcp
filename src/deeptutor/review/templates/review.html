@@ -812,6 +812,9 @@ window.__REVIEW__ = {{PAYLOAD}};
   function renderQualityNotice() {
     var warnings = (data.quality && data.quality.warnings) || [];
     var gaps = data.source_gaps || [];
+    if (data.quality_watermark) {
+      document.querySelector("main").prepend(el("p", "sources", data.quality_watermark));
+    }
     if (!warnings.length && !gaps.length) return;
     var box = el("section", "callout warning quality-notice");
     box.id = "quality-notice";
@@ -927,6 +930,13 @@ window.__REVIEW__ = {{PAYLOAD}};
     }
 
     var answer = el("div", "answer");
+    var anchor = (data.anchors || {})[item.id];
+    if (anchor && anchor.quote) {
+      var evidence = el("div", "sources");
+      evidence.appendChild(el("p", "", [anchor.chapter, anchor.doc].filter(Boolean).join(" · ")));
+      evidence.appendChild(el("blockquote", "", anchor.quote));
+      answer.appendChild(evidence);
+    }
     answer.hidden = true;
     answer.setAttribute("aria-live", "polite");
     var value = el("div", "value");

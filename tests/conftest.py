@@ -41,6 +41,40 @@ from deeptutor.review.storage import ReviewStore  # noqa: E402
 NOW = 1_800_000_000.0
 EVENING = datetime(2026, 11, 6, 20, 0, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp()
 
+LEGACY_SCHEDULING_TESTS = {
+    "test_agent_tools", "test_api", "test_capabilities", "test_core_state",
+    "test_deep_audit_regressions", "test_due_tool", "test_exam_countdown",
+    "test_export_accuracy", "test_phase34_edge", "test_phase35_recheck", "test_queue",
+    "test_real_usage_regressions", "test_reply_accuracy", "test_round3_verified",
+    "test_storage", "test_study_aids",
+}
+LEGACY_ATTEMPT_TESTS = {
+    "test_agent_tools", "test_deep_audit_regressions", "test_hint_tool", "test_learner_quote",
+    "test_mcp_audit_fixes", "test_phase34_edge", "test_reply_accuracy", "test_study_aids",
+}
+R4_DEFAULT_TESTS = {
+    "test_hint_ledger_downgrades_good", "test_mcp_attempt_requires_shown_item",
+    "test_mcp_attempt_hides_answer_until_reveal",
+}
+
+
+@pytest.fixture(autouse=True)
+def _configure_pre_r4_regressions(request, monkeypatch: pytest.MonkeyPatch) -> None:
+    if request.node.originalname in R4_DEFAULT_TESTS:
+        return
+    module = Path(str(request.node.path)).stem
+    if module in LEGACY_SCHEDULING_TESTS:
+        original = ReviewStore.put_spec
+
+        def put_legacy_fixture(store, spec, **kwargs):
+            kwargs["assessment"] = ({"state": "legacy"}, {})
+            return original(store, spec, **kwargs)
+
+        monkeypatch.setattr(ReviewStore, "put_spec", put_legacy_fixture)
+    if module in LEGACY_ATTEMPT_TESTS:
+        monkeypatch.setenv("DEEPTUTOR_REVIEW_REQUIRE_SHOWN_ITEM", "0")
+        monkeypatch.setenv("DEEPTUTOR_REVIEW_LEGACY_INLINE_ANSWERS", "1")
+
 
 @pytest.fixture(autouse=True)
 def _isolate_review_home(monkeypatch: pytest.MonkeyPatch, tmp_path_factory) -> None:

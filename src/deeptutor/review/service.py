@@ -21,6 +21,7 @@ from pydantic import ValidationError
 
 from deeptutor.__version__ import __version__
 
+from deeptutor.review import provenance
 from deeptutor.review.adapter import (
     RATING_MAP,
     apply_rating,
@@ -40,10 +41,11 @@ from deeptutor.review.models import (
 )
 from deeptutor.review.correction import answer_text as _answer_text
 from deeptutor.review.correction import build_correction
-from deeptutor.review.core_state import states_for_spec
+from deeptutor.review.core_state import effective_link, load_core_progress_read_only, states_for_spec
 from deeptutor.review.metrics import (
     completion_rate,
     learner_calibration,
+    objective_accuracy,
     retention_buckets,
 )
 from deeptutor.review.qa import run_gates
@@ -56,6 +58,7 @@ from deeptutor.review.queue import (
 from deeptutor.review.storage import (
     ACTIVE_GAP_SECONDS,
     MAX_OPEN_SESSION_SECONDS,
+    ItemRevision,
     ReviewStore,
     SessionNotFound,
     SpecIntegrityError,
@@ -196,6 +199,20 @@ def grade_answer(item: Item, answer: Any) -> bool | None:
     )
 
 
+def answer_feedback(spec: ReviewSpec, item: Item, rating: str, correct: bool | None) -> dict[str, Any]:
+    return {
+        "answer": _answer_text(item),
+        "explanation": item.explanation,
+        "study_aids": {
+            "assumptions": list(item.assumptions),
+            "self_check": item.self_check,
+            "pitfalls": list(item.pitfalls),
+            "table": item.study_table,
+        },
+        "correction": build_correction(spec, item) if rating == "again" or correct is False else None,
+    }
+
+
 def _attempt_response(
     store: ReviewStore,
     spec: ReviewSpec,
@@ -220,12 +237,12 @@ def _attempt_response(
         now=reference,
         scheduler=scheduler,
     )
-    correct = grade_answer(item, request.answer)
-    correction = (
-        build_correction(spec, item)
-        if event["rating"] == "again" or correct is False
-        else None
-    )
+    stored_correct = event.get("correct")
+    basis = event.get("grader_basis")
+    if basis is None:
+        correct = grade_answer(item, request.answer)
+    else:
+        correct = None if stored_correct is None else bool(stored_correct)
     return {
         "spec_id": spec.id,
         "event_id": event["event_id"],
@@ -244,15 +261,8 @@ def _attempt_response(
         "confidence": event.get("confidence"),
         "learner_quote": event.get("learner_quote"),
         "correct": correct,
-        "answer": _answer_text(item),
-        "explanation": item.explanation,
-        "study_aids": {
-            "assumptions": list(item.assumptions),
-            "self_check": item.self_check,
-            "pitfalls": list(item.pitfalls),
-            "table": item.study_table,
-        },
-        "correction": correction,
+        "grader_basis": basis or "unjudged",
+        **answer_feedback(spec, item, event["rating"], correct),
         "source_ids": item.source_ids,
         "predicted_retrievability": round(float(event["predicted_retrievability"]), 4),
         "scheduled_interval_days": round(float(event["scheduled_interval_days"]), 6),
@@ -325,6 +335,7 @@ class ReviewService:
             spec.model_copy(update={"quality": report}),
             overwrite=overwrite,
             allow_history_rewrite=allow_history_rewrite,
+            assessment=self._assess(spec, report),
         )
         return {
             "spec_id": stored.id,
@@ -341,6 +352,113 @@ class ReviewService:
     def list_specs(self) -> list[dict[str, Any]]:
         return self.store.list_specs()
 
+    def correct_item(self, spec_id: str, item_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+        allowed = {"stem", "options", "answer", "explanation", "difficulty", "source_ids"}
+        if not isinstance(patch, dict) or not patch or set(patch) - allowed:
+            raise ValueError("patch must contain only stem, options, answer, explanation, difficulty or source_ids")
+        if "options" in patch and (
+            not isinstance(patch["options"], list)
+            or any(not isinstance(option, dict) or set(option) != {"label", "text"} for option in patch["options"])
+        ):
+            raise ValueError("options must contain only label and text")
+        current = self.store.get_spec(spec_id)
+        current.item_by_id(item_id)
+        payload = current.model_dump(mode="json")
+        payload["content_hash"] = ""
+        for item in payload["items"]:
+            if item["id"] == item_id:
+                item.update(patch)
+                break
+        updated = ReviewSpec.model_validate(payload)
+        gates = run_gates(updated)
+        if not gates.passed:
+            raise QualityGateFailed(gates)
+        assessment = self._assess(updated, gates)
+        revision = ItemRevision(item_id, patch)
+        self.store.put_spec(
+            updated.model_copy(update={"quality": gates}),
+            assessment=assessment,
+            allow_nonidentity_content_change=True,
+            expected_hash=current.content_hash,
+            revision=revision,
+        )
+        return {
+            "item": updated.item_by_id(item_id).model_dump(mode="json"),
+            "revision": revision.number,
+            "quality": self.quality(spec_id),
+        }
+
+    @staticmethod
+    def _assess(spec: ReviewSpec, gates: QualityReport) -> tuple[dict[str, Any], dict[str, Any]]:
+        try:
+            return provenance.assess(spec, gates)
+        except (ImportError, OSError, ValueError):
+            logger.warning("Could not assess sources for %s", spec.id)
+            return ({
+                "state": "draft" if gates.passed else "rejected",
+                "gates": gates.model_dump(mode="json"),
+                "support": {item.id: "none" for item in spec.items},
+                "anchored_items": 0, "coverage": 0,
+                "warning": "Could not read chapter sources.",
+                "generated_at": time.time(),
+            }, {})
+
+    def _quality_record(self, spec: ReviewSpec) -> dict[str, Any]:
+        report = self.store.quality_record(spec.id)
+        if report is not None and report["content_hash"] == spec.content_hash:
+            return report
+        return {"state": "draft", "content_hash": spec.content_hash}
+
+    def quality(self, spec_id: str, *, refresh: bool = False) -> dict[str, Any]:
+        spec = self.store.get_spec(spec_id)
+        record = self._quality_record(spec)
+        if refresh or (record["state"] == "legacy" and "support" not in record and not self.store.read_only):
+            report, anchors = self._assess(spec, run_gates(spec))
+            report["assessed_state"] = report["state"]
+            if record.get("reviewed_by"):
+                report["state"] = record["state"]
+            elif not refresh:
+                report["state"] = record["state"]
+            self.store.save_quality(spec, report, anchors)
+            record = self._quality_record(spec)
+        return {
+            **record,
+            "spec_id": spec.id,
+            "content_hash": spec.content_hash,
+            **self._quality_summary(spec, record),
+        }
+
+    def quality_decision(
+        self,
+        spec_id: str,
+        *,
+        decision: str,
+        note: str | None = None,
+        reviewer: str,
+    ) -> dict[str, Any]:
+        spec = self.store.get_spec(spec_id)
+        result = self.store.decide_quality(
+            spec,
+            decision=decision,
+            note=note,
+            reviewer=reviewer,
+        )
+        return {
+            **result,
+            "spec_id": spec.id,
+            "content_hash": spec.content_hash,
+            **self._quality_summary(spec, result),
+        }
+
+    def _quality_summary(self, spec: ReviewSpec, record: dict[str, Any] | None = None) -> dict[str, Any]:
+        if record is None:
+            record = self._quality_record(spec)
+        state = record["state"]
+        return {
+            "quality_state": state, "anchored_items": record.get("anchored_items", 0),
+            "quality_warning": provenance.WARNINGS.get(state), "items": len(spec.items),
+        }
+
     def spec_meta(self, spec_id: str) -> dict[str, Any]:
         meta = self.store.spec_meta(spec_id)
         return self._describe_spec(meta, lambda: self.store.get_spec(spec_id))
@@ -350,10 +468,10 @@ class ReviewService:
         details = []
         for row in rows:
             payload = row.pop("spec_json")
-            details.append(self._describe_spec(row, lambda: self.store.decode_spec(row["spec_id"], payload)))
+            details.append(self._describe_spec(row, lambda: self.store.decode_spec(row["spec_id"], payload), include_quality=True))
         return count, details
 
-    def _describe_spec(self, meta: dict[str, Any], load_spec: Callable[[], ReviewSpec]) -> dict[str, Any]:
+    def _describe_spec(self, meta: dict[str, Any], load_spec: Callable[[], ReviewSpec], *, include_quality: bool = False) -> dict[str, Any]:
         spec_id = meta["spec_id"]
         try:
             spec = load_spec()
@@ -370,10 +488,21 @@ class ReviewService:
                 ).model_dump(mode="json"),
                 "counts": {"concepts": 0, "sections": 0, "items": 0},
                 "warning": "stored pack failed validation; regenerate or re-import it",
+                **({"quality_state": "rejected", "anchored_items": 0, "quality_warning": provenance.WARNINGS["rejected"]} if include_quality else {}),
+                **({"linked_concepts": 0, "total_concepts": 0} if include_quality else {}),
+            }
+        linked_counts = {}
+        if include_quality:
+            overlays = self.store.links_for_spec(spec.id)
+            linked_counts = {
+                "linked_concepts": sum(effective_link(spec, concept, overlays) is not None for concept in spec.concepts),
+                "total_concepts": len(spec.concepts),
             }
         return {
             **meta,
             "title": spec.title,
+            **linked_counts,
+            **(self._quality_summary(spec) if include_quality else {}),
             # Re-run the gates: a pack stored before a new gate existed must
             # not keep advertising an old "passed" report (G9 is the current
             # example). The content hash excludes quality, so this is cheap.
@@ -394,15 +523,29 @@ class ReviewService:
         now: float | None = None,
         allow_recovery: bool = True,
         read_only: bool = False,
+        include_draft: bool = False,
     ) -> dict[str, Any]:
         spec = self.store.get_spec(spec_id)
         moment = time.time() if now is None else now
+        quality = self._quality_summary(spec)
+        quality_state = quality["quality_state"]
+        warning = {"quality_warning": quality["quality_warning"]} if quality["quality_warning"] else {}
+        if quality_state == "rejected" or (quality_state == "draft" and not include_draft):
+            return {
+                "spec_id": spec.id, "session_id": "", "generated_at": iso_from_timestamp(moment, spec.plan.timezone),
+                "timezone": spec.plan.timezone, "budget": 0, "planned_minutes": spec.plan.daily_minutes,
+                "estimated_minutes": 0, "exam": None, "items": [],
+                "counts": dict.fromkeys(("due", "new", "repeat", "selected"), 0),
+                "backlog": False, "recovery": {"active": False}, "weak_concepts": [],
+                "tomorrow": {"date": tomorrow_window(moment, spec.plan.timezone)[0], "due_items": 0},
+                "empty_message": quality["quality_warning"], **warning,
+            }
         if read_only:
             # A true read: no session is opened and no view is recorded. This
             # is what ``--read-only`` promises; the default path deliberately
             # reuses the open sitting and records views for the Today panel.
             states = states_for_spec(spec, self.store, now=moment)
-            return build_today(
+            return {**build_today(
                 spec,
                 self.store,
                 now=moment,
@@ -410,7 +553,7 @@ class ReviewService:
                 states=states,
                 record_views=False,
                 allow_recovery=allow_recovery,
-            )
+            ), **warning}
         # Reuse the open session instead of minting one per call. The agent
         # path calls ``today`` every time the learner asks "what now?", and a
         # fresh session per call inflates the session count while the learner
@@ -418,14 +561,14 @@ class ReviewService:
         with _session_lock(self.store.home, spec.id):
             sid = self._session_for(spec, session_id, moment)
         states = states_for_spec(spec, self.store, now=moment)
-        return build_today(
+        return {**build_today(
             spec,
             self.store,
             now=moment,
             session_id=sid,
             states=states,
             allow_recovery=allow_recovery,
-        )
+        ), **warning}
 
     def due_overview(
         self,
@@ -434,6 +577,7 @@ class ReviewService:
         now: float | None = None,
         limit: int = 50,
         offset: int = 0,
+        include_draft: bool = False,
     ) -> dict[str, Any]:
         """Cross-pack due summary; never opens a session and never records a view.
 
@@ -464,6 +608,9 @@ class ReviewService:
             title = getattr(spec, "title", "") or ""
             if needle and needle not in title:
                 continue
+            quality = self._quality_summary(spec)
+            if quality["quality_state"] == "rejected" or (quality["quality_state"] == "draft" and not include_draft):
+                continue
             states = states_for_spec(spec, self.store, now=moment)
             activity = self.store.item_activity(spec.id)
             today = build_today(
@@ -489,6 +636,7 @@ class ReviewService:
                 "spec_id": spec.id,
                 "title": title,
                 "subject": pack_subject,
+                "quality_warning": quality["quality_warning"],
                 "queued": queued,
                 "due": int(counts.get("due") or 0),
                 "new": int(counts.get("new") or 0),
@@ -625,6 +773,7 @@ class ReviewService:
             "window_days": days,
             "retention": retention_buckets(events, now=moment, days=days),
             "completion": completion_rate(sessions, scoped),
+            "objective_accuracy": objective_accuracy(events),
             # Calibration reads the whole window, like retention: it describes
             # the learner's self-assessment, not just the sessions that
             # completed, and needs the per-concept grouping the raw events
@@ -691,7 +840,6 @@ class ReviewService:
         raw_hints = request.hints_used
         if isinstance(raw_hints, bool) or not isinstance(raw_hints, int):
             raise ValueError("hints_used must be an integer from 0 to 2")
-        hints_used = max(0, min(2, raw_hints))
         confidence = request.confidence
         if confidence is not None:
             if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
@@ -702,6 +850,13 @@ class ReviewService:
         concept = spec.concept_by_id(item.concept_ids[0])
         scheduler = scheduler_for(spec)
         submission_id = request.submission_id or uuid.uuid4().hex
+        existing = self.store.event_by_submission(submission_id)
+        hints_issued = (
+            int(existing.get("hints_issued") or 0)
+            if existing is not None
+            else self.store.hint_count(spec.id, request.session_id, item.id)
+        )
+        hints_used = min(2, max(hints_issued, raw_hints))
         elapsed_ms = request.elapsed_ms
         if isinstance(elapsed_ms, bool) or not isinstance(elapsed_ms, int):
             raise ValueError("elapsed_ms must be an integer")
@@ -733,7 +888,6 @@ class ReviewService:
             identity["confidence"] = confidence
         payload_hash = _payload_hash(identity)
 
-        existing = self.store.event_by_submission(submission_id)
         if existing is not None:
             if existing["payload_hash"] != payload_hash:
                 raise SubmissionConflict(
@@ -818,6 +972,10 @@ class ReviewService:
             )
             return StateTransition(state, predicted, interval_days)
 
+        correct = grade_answer(item, request.answer)
+        basis = "unjudged"
+        if correct is not None:
+            basis = {"single_choice": "choice_exact", "numeric": "numeric_tolerance"}.get(item.kind, "written_contains")
         event, created = self.store.append_event(
             submission_id=submission_id,
             spec_id=spec.id,
@@ -833,8 +991,11 @@ class ReviewService:
             app_version=__version__,
             transition=transition,
             hints_used=hints_used,
+            hints_issued=hints_issued,
             confidence=confidence,
             learner_quote=learner_quote,
+            correct=correct,
+            grader_basis=basis,
         )
         return _attempt_response(
             self.store,
@@ -969,12 +1130,21 @@ class ReviewService:
         report = run_gates(spec)
         if not report.passed:
             raise QualityGateFailed(report)
+        record = self._quality_record(spec)
+        if record["state"] == "rejected":
+            raise QualityGateFailed(report.model_copy(update={"passed": False, "warnings": [*report.warnings, provenance.WARNINGS["rejected"]]}))
         moment = time.time() if now is None else now
-        states = states_for_spec(spec, self.store, now=moment)
+        states = states_for_spec(
+            spec, self.store, now=moment,
+            progress_loader=load_core_progress_read_only if self.store.read_only else None,
+        )
         return build_html(
             spec,
             concept_state_map(spec, self.store, now=moment, states=states),
             now=moment,
             include_snapshot=include_snapshot,
             quality=report,
+            quality_state=record["state"],
+            anchors=self.store.anchors_for_spec(spec.id, spec.content_hash),
+            read_only=self.store.read_only,
         )

@@ -125,19 +125,7 @@ def main() -> int:
     # -- imports ---------------------------------------------------------
     try:
         from deeptutor.core.tool_protocol import BaseTool  # noqa: F401
-        from deeptutor.review.agent_tools import (
-            ReviewAttemptTool,
-            ReviewBookFiguresTool,
-            ReviewDueTool,
-            ReviewExportLinkTool,
-            ReviewExportTreeTool,
-            ReviewGenerateTool,
-            ReviewHintTool,
-            ReviewPlanTool,
-            ReviewSpecsTool,
-            ReviewTodayTool,
-            ReviewWeaknessTool,
-        )
+        from deeptutor.review.mcp_server import TOOL_CLASSES
     except ImportError as exc:
         print(f"[FAIL] import deeptutor.review.agent_tools: {exc}")
         print(
@@ -148,19 +136,7 @@ def main() -> int:
         shutil.rmtree(_HOME, ignore_errors=True)
         return 2
 
-    tools = {
-        "review_specs": ReviewSpecsTool(),
-        "review_due": ReviewDueTool(),
-        "review_today": ReviewTodayTool(),
-        "review_attempt": ReviewAttemptTool(),
-        "review_weakness": ReviewWeaknessTool(),
-        "review_export_link": ReviewExportLinkTool(),
-        "review_export_tree": ReviewExportTreeTool(),
-        "review_book_figures": ReviewBookFiguresTool(),
-        "review_hint": ReviewHintTool(),
-        "review_generate": ReviewGenerateTool(),
-        "review_plan": ReviewPlanTool(),
-    }
+    tools = {name: tool_class() for name, tool_class in TOOL_CLASSES.items()}
 
     def run(tool: str, **kwargs) -> dict:
         result = asyncio.run(tools[tool].execute(**kwargs))
@@ -211,7 +187,7 @@ def main() -> int:
 
         store = ReviewStore()
         before = len(store.sessions_for_spec(SPEC_ID))
-        payload = run("review_due")
+        payload = run("review_due", include_draft=True)
         after = len(store.sessions_for_spec(SPEC_ID))
         assert_true(
             before == after,
@@ -231,7 +207,7 @@ def main() -> int:
         return {"packs": payload["count"], "queued": row["queued"]}
 
     def step_today() -> dict:
-        payload = run("review_today", spec_id=SPEC_ID)
+        payload = run("review_today", spec_id=SPEC_ID, include_draft=True)
         items = payload.get("items")
         assert_true(isinstance(items, list) and items, "review_today: empty items for a fresh spec")
         first = items[0]
@@ -240,6 +216,7 @@ def main() -> int:
         assert_true(bool(first.get("kind")), "review_today: item missing kind")
         assert_true(bool(first.get("stem")), "review_today: item missing stem")
         state["item_id"] = item_id
+        state["session_id"] = payload["session_id"]
         state["concept_id"] = first.get("concept_id")
         return {"item_id": item_id, "items": len(items)}
 
@@ -250,6 +227,7 @@ def main() -> int:
             item_id=state["item_id"],
             rating="good",
             submission_id=SUBMISSION_GOOD,
+            session_id=state["session_id"],
         )
         # id relay: the tool must echo the very id it got from review_today.
         assert_true(payload.get("item_id") == state["item_id"], "review_attempt: item_id mismatch")
@@ -267,6 +245,7 @@ def main() -> int:
             item_id=state["item_id"],
             rating="good",
             submission_id=SUBMISSION_GOOD,
+            session_id=state["session_id"],
         )
         assert_true(payload.get("created") is False, "replay: created should be False")
         assert_true(
@@ -282,6 +261,7 @@ def main() -> int:
             item_id=state["item_id"],
             rating="again",
             submission_id=SUBMISSION_AGAIN,
+            session_id=state["session_id"],
         )
         assert_true(payload.get("event_id"), "review_attempt(again): missing event_id")
         assert_true(payload.get("created") is True, "review_attempt(again): should be created=True")

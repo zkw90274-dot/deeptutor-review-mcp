@@ -41,6 +41,15 @@ EXPECTED_TOOLS = {
     "review_hint": "ReviewHintTool",
     "review_plan": "ReviewPlanTool",
     "review_book_figures": "ReviewBookFiguresTool",
+    "review_reveal": "ReviewRevealTool",
+    "review_quality": "ReviewQualityTool",
+    "review_quality_decision": "ReviewQualityDecisionTool",
+    "review_correct": "ReviewCorrectTool",
+    "review_metrics": "ReviewMetricsTool",
+    "review_session": "ReviewSessionTool",
+    "review_link": "ReviewLinkTool",
+    "review_session_plan": "ReviewSessionPlanTool",
+    "review_artifact_status": "ReviewArtifactStatusTool",
 }
 
 
@@ -69,13 +78,7 @@ def test_manifest_tool_orders_are_unique_and_in_range() -> None:
     tools = manifest["tools"]
     orders = [entry["order"] for entry in tools.values()]
     assert len(orders) == len(set(orders))
-    # 60-68 is the block the Review module reserved for itself. ``review_due``
-    # was added later and every slot in that block (and every slot below 103)
-    # is already claimed by another module, so it takes the nearest free one:
-    # the sort key only needs to be unique within this manifest.
-    assert all(60 <= order <= 68 for name, order in
-               ((name, entry["order"]) for name, entry in tools.items())
-               if name != "review_due")
+    assert set(orders) == set(range(60, 69)) | set(range(103, 113))
     assert tools["review_due"]["order"] == 103
 
 

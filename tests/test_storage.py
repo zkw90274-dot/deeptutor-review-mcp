@@ -559,7 +559,7 @@ ReviewStore(sys.argv[2])
                 process.kill()
                 process.communicate()
     with closing(sqlite3.connect(store.db_path)) as conn:
-        assert conn.execute("SELECT version FROM review_schema_migrations ORDER BY version").fetchall() == [(4,), (5,)]
+        assert conn.execute("SELECT version FROM review_schema_migrations ORDER BY version").fetchall() == [(4,), (9,)]
         assert [column[1] for column in conn.execute("PRAGMA table_info(review_events)")].count("learner_quote") == 1
         assert conn.execute("PRAGMA integrity_check").fetchone() == ("ok",)
 

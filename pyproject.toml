@@ -51,7 +51,7 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-"deeptutor.review" = ["templates/*", "py.typed"]
+"deeptutor.review" = ["templates/*", "skill/*", "py.typed"]
 "deeptutor.modules.manifests" = ["*.json"]
 
 [tool.pytest.ini_options]

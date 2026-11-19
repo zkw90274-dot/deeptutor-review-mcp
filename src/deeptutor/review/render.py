@@ -230,7 +230,7 @@ def _render_tikz(figure: FigureSpec) -> FigureRender:
     return FigureRender(rendered.svg, warning=warning)
 
 
-def render_figure(figure: FigureSpec) -> FigureRender:
+def render_figure(figure: FigureSpec, *, allow_tikz: bool = True) -> FigureRender:
     if figure.kind == "plot":
         return _render_plot(figure)
     if figure.kind == "bar":
@@ -238,6 +238,8 @@ def render_figure(figure: FigureSpec) -> FigureRender:
     if figure.kind == "panels":
         return _render_panels(figure)
     if figure.kind == "tikz":
+        if not allow_tikz:
+            return _placeholder(figure.title or figure.id, "TikZ rendering requires disk access")
         return _render_tikz(figure)
     return _placeholder(figure.title or figure.id, f"unsupported figure kind {figure.kind!r}")
 

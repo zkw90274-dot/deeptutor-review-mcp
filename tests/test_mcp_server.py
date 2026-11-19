@@ -96,7 +96,9 @@ def test_each_listed_tool_carries_annotations() -> None:
         "review_weakness",
         "review_export_link",
         "review_book_figures",
-        "review_hint",
+        "review_metrics",
+        "review_session_plan",
+        "review_artifact_status",
     }
     today = next(tool for tool in tools if tool.name == "review_today")
     assert today.annotations.readOnlyHint is False
@@ -160,14 +162,14 @@ def test_each_tool_call_returns_json(review_home) -> None:
             specs = _payload(await session.call_tool("review_specs", {}))
             assert [row["id"] for row in specs["specs"]] == [SPEC_ID]
 
-            today = _payload(await session.call_tool("review_today", {"spec_id": SPEC_ID}))
+            today = _payload(await session.call_tool("review_today", {"spec_id": SPEC_ID, "include_draft": True}))
             assert today["items"], "fixture pack has no due item to review"
             item_id = today["items"][0]["item_id"]
 
             hint = _payload(
                 await session.call_tool(
                     "review_hint",
-                    {"spec_id": SPEC_ID, "item_id": item_id, "level": 1},
+                    {"spec_id": SPEC_ID, "item_id": item_id, "level": 1, "session_id": today["session_id"]},
                 )
             )
             assert hint["item_id"] == item_id
@@ -185,12 +187,15 @@ def test_each_tool_call_returns_json(review_home) -> None:
                 )
             )
             assert attempt["item_id"] == item_id
-            assert attempt["rating"] == "good"
+            assert attempt["rating"] == "hard"
+            assert "answer" not in attempt
+            feedback = _payload(await session.call_tool("review_reveal", {"spec_id": SPEC_ID, "event_id": attempt["event_id"]}))
+            assert feedback["answer"]
 
             weakness = _payload(
                 await session.call_tool("review_weakness", {"spec_id": SPEC_ID})
             )
-            due = _payload(await session.call_tool("review_due", {}))
+            due = _payload(await session.call_tool("review_due", {"include_draft": True}))
             assert due["count"] == 1
             assert due["packs"][0]["spec_id"] == SPEC_ID
             export = _payload(
@@ -206,6 +211,34 @@ def test_each_tool_call_returns_json(review_home) -> None:
             )
             plan = _payload(await session.call_tool("review_plan", {"action": "status"}))
             assert plan["plans"] == []
+            quality = _payload(await session.call_tool("review_quality", {"spec_id": SPEC_ID}))
+            assert quality["state"] == "draft"
+            metrics = _payload(await session.call_tool("review_metrics", {"spec_id": SPEC_ID}))
+            assert metrics["objective_accuracy"]["judged"] == 0
+            ended = _payload(await session.call_tool("review_session", {
+                "action": "end", "spec_id": SPEC_ID, "session_id": today["session_id"],
+            }))
+            assert ended["completed"] == 1
+            corrected = _payload(await session.call_tool("review_correct", {
+                "spec_id": SPEC_ID, "item_id": item_id,
+                "patch": {"stem": today["items"][0]["stem"] + " 请说明理由。"},
+            }))
+            assert corrected["revision"] == 1
+            links = _payload(await session.call_tool("review_link", {"action": "list", "spec_id": SPEC_ID}))
+            assert links["linked_concepts"] == 0
+            mixed = _payload(await session.call_tool("review_session_plan", {
+                "spec_ids": [SPEC_ID], "include_draft": True, "limit": 2,
+            }))
+            assert 0 < len(mixed["items"]) <= 2
+            artifacts = _payload(await session.call_tool("review_artifact_status", {"spec_id": SPEC_ID}))
+            assert artifacts["count"] == 1
+            assert artifacts["items"][0]["status"] == "unknown"
+            quality_decision = _payload(await session.call_tool("review_quality_decision", {
+                "spec_id": SPEC_ID, "decision": "verify", "note": "test approval",
+            }))
+            assert quality_decision["quality_state"] == "verified"
+            specs_after_decision = _payload(await session.call_tool("review_specs", {}))
+            assert specs_after_decision["specs"][0]["quality_state"] == "verified"
             return {
                 "review_specs": specs,
                 "review_due": due,
@@ -217,6 +250,15 @@ def test_each_tool_call_returns_json(review_home) -> None:
                 "review_book_figures": figures,
                 "review_hint": hint,
                 "review_plan": plan,
+                "review_reveal": feedback,
+                "review_quality": quality,
+                "review_quality_decision": quality_decision,
+                "review_correct": corrected,
+                "review_metrics": metrics,
+                "review_session": ended,
+                "review_link": links,
+                "review_session_plan": mixed,
+                "review_artifact_status": artifacts,
             }
 
     payloads = _run(scenario)
@@ -302,8 +344,8 @@ def test_instructions_are_deployment_neutral() -> None:
 
     assert "DEEPTUTOR_REVIEW_HOME" in INSTRUCTIONS
     assert "/opt/course-notes" not in INSTRUCTIONS
-    assert len(INSTRUCTIONS) <= 1500
-    assert "docs/skill/SKILL.md" in INSTRUCTIONS
+    assert len(INSTRUCTIONS) <= 2800
+    assert "{skill}" in INSTRUCTIONS
 
 
 def test_extra_context_appended_from_env(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -323,7 +365,11 @@ def test_extra_context_missing_file_is_ignored(tmp_path, monkeypatch: pytest.Mon
     from deeptutor.review.mcp_server import INSTRUCTIONS, build_instructions
 
     monkeypatch.setenv("DEEPTUTOR_REVIEW_MCP_CONTEXT", str(tmp_path / "absent.md"))
-    assert build_instructions() == INSTRUCTIONS.strip()
+    instructions = build_instructions()
+    assert instructions.startswith(INSTRUCTIONS.split("{skill}")[0].format())
+    assert "review://spec/{spec_id}/export" in instructions
+    assert "SKILL.md" in instructions
+    assert "---" not in instructions
 
 def _skill_text() -> str:
     from _layout import skill_dir

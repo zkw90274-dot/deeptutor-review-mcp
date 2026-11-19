@@ -22,12 +22,30 @@ NO_PLAN = "DEEPTUTOR_REVIEW_NO_PLAN"
 NO_GENERATE = "DEEPTUTOR_REVIEW_NO_GENERATE"
 NO_EXPORT_WRITE = "DEEPTUTOR_REVIEW_NO_EXPORT_WRITE"
 ALLOW_OUT_DIRS = "DEEPTUTOR_REVIEW_ALLOW_OUT_DIRS"
+REQUIRE_SHOWN_ITEM = "DEEPTUTOR_REVIEW_REQUIRE_SHOWN_ITEM"
+LEGACY_INLINE_ANSWERS = "DEEPTUTOR_REVIEW_LEGACY_INLINE_ANSWERS"
+MAX_REVEALS_PER_SESSION = "DEEPTUTOR_REVIEW_MAX_REVEALS_PER_SESSION"
 
 _TRUTHY = {"1", "true", "yes", "on"}
 
 
 def _flag(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in _TRUTHY
+
+
+def require_shown_item() -> bool:
+    return os.environ.get(REQUIRE_SHOWN_ITEM, "1").strip() != "0"
+
+
+def legacy_inline_answers() -> bool:
+    return _flag(LEGACY_INLINE_ANSWERS)
+
+
+def reveal_limit() -> int:
+    try:
+        return max(0, int(os.environ.get(MAX_REVEALS_PER_SESSION, "20")))
+    except ValueError:
+        return 20
 
 
 @dataclass(frozen=True)
@@ -58,6 +76,8 @@ def current() -> Capabilities:
 
 _DISABLED = {
     "review_attempt": ("attempts", "recording attempts"),
+    "review_reveal": ("attempts", "recording reveals"),
+    "review_correct": ("attempts", "correcting pack content"),
     "review_plan": ("plan", "managing study plans"),
     "review_generate": ("generate", "generating new packs"),
     "review_export_tree": ("export_write", "writing export trees"),

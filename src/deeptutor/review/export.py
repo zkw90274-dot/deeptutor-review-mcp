@@ -31,6 +31,12 @@ from deeptutor.review.symbols import SYMBOL_HEADING, normalize_symbol_callout
 from deeptutor.review.timeutil import iso, tomorrow_window, zone
 
 MAX_BYTES = 8_000_000
+
+
+class ExportTooLarge(ValueError):
+    """The rendered HTML exceeds the export byte budget."""
+
+
 #: Wall-clock cap for all TikZ subprocess renders in one export. Each figure
 #: can spend up to 30s in xelatex plus 30s in pdftocairo; without a shared
 #: deadline a pack with many figures blocks the request for minutes. Figure
@@ -259,6 +265,8 @@ def _render_concept_graph(spec: ReviewSpec) -> dict[str, Any] | None:
 
 def _render_assets(
     spec: ReviewSpec,
+    *,
+    read_only: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
     """Render trusted figures/widgets and collect visible-degradation warnings."""
     figures: dict[str, Any] = {}
@@ -267,7 +275,9 @@ def _render_assets(
     tikz_deadline: float | None = None
     for figure in spec.figures:
         rendered: FigureRender | None = None
-        if figure.kind == "tikz":
+        if figure.kind == "tikz" and read_only:
+            rendered = render_figure(figure, allow_tikz=False)
+        elif figure.kind == "tikz":
             now = time.monotonic()
             if tikz_deadline is None:
                 tikz_deadline = now + MAX_TIKZ_RENDER_SECONDS
@@ -517,10 +527,13 @@ def build_html(
     now: float,
     include_snapshot: bool = False,
     quality: QualityReport,
+    quality_state: str | None = None,
+    anchors: dict[str, Any] | None = None,
+    read_only: bool = False,
 ) -> str:
     if not quality.passed:
         raise ValueError("refusing to export a spec that failed QA gates")
-    rendered_figures, rendered_widgets, render_warnings = _render_assets(spec)
+    rendered_figures, rendered_widgets, render_warnings = _render_assets(spec, read_only=read_only)
     concept_graph = _render_concept_graph(spec)
     if concept_graph is not None and concept_graph.get("warning"):
         render_warnings.append(f"concept graph: {concept_graph['warning']}")
@@ -539,6 +552,8 @@ def build_html(
         concept_graph=concept_graph,
     )
     needs_mathjax = _needs_mathjax(payload)
+    payload["quality_watermark"] = "未人工复核" if quality_state in {"draft", "legacy"} else None
+    payload["anchors"] = anchors or {}
     if not needs_mathjax:
         payload["footer_note"] = FOOTER_NOTE_PLAIN
     template = _template()
@@ -592,7 +607,7 @@ def build_html(
     )
     encoded = rendered.encode("utf-8")
     if len(encoded) > MAX_BYTES:
-        raise ValueError(
+        raise ExportTooLarge(
             f"export is {len(encoded)} bytes, over the {MAX_BYTES}-byte W2 budget"
         )
     return rendered

@@ -205,6 +205,7 @@ def build_today(
     record_views: bool = True,
     allow_recovery: bool = True,
     activity: dict[tuple[str, str], float] | None = None,
+    candidate_preview: bool = False,
 ) -> dict[str, Any]:
     tz = zone(spec.plan.timezone)
     exam, planned_minutes = _exam_plan(spec, now, tz)
@@ -464,6 +465,17 @@ def build_today(
             retry_row["retry_gap"] = len(entries)
             entries.append(retry_row)
             used.add(row["item_id"])
+
+    if candidate_preview:
+        due_ids = {row["item_id"] for row in review_rows}
+        new_ids = {row["item_id"] for row in new_rows} - due_ids
+        return {
+            "items": entries,
+            "due": len(due_ids),
+            "new": len(new_ids),
+            "planned_minutes": planned_minutes,
+            "budget": total_budget,
+        }
 
     if record_views:
         store.record_views(

@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hmac
+import json
 import logging
 import os
 import sys
@@ -46,6 +47,8 @@ from mcp.server.lowlevel import Server
 
 from deeptutor.core.tool_protocol import BaseTool, ToolDefinition
 from deeptutor.review import capabilities
+from deeptutor.review.mcp_output import OUTPUT_SCHEMAS
+from deeptutor.review.mcp_resources import register_resources
 from deeptutor.review.agent_tools import (
     ReviewAttemptTool,
     ReviewBookFiguresTool,
@@ -55,6 +58,15 @@ from deeptutor.review.agent_tools import (
     ReviewGenerateTool,
     ReviewHintTool,
     ReviewPlanTool,
+    ReviewRevealTool,
+    ReviewQualityTool,
+    ReviewQualityDecisionTool,
+    ReviewCorrectTool,
+    ReviewMetricsTool,
+    ReviewSessionTool,
+    ReviewLinkTool,
+    ReviewSessionPlanTool,
+    ReviewArtifactStatusTool,
     ReviewSpecsTool,
     ReviewTodayTool,
     ReviewWeaknessTool,
@@ -92,6 +104,15 @@ TOOL_CLASSES: dict[str, type[BaseTool]] = {
     "review_generate": ReviewGenerateTool,
     "review_hint": ReviewHintTool,
     "review_plan": ReviewPlanTool,
+    "review_reveal": ReviewRevealTool,
+    "review_quality": ReviewQualityTool,
+    "review_quality_decision": ReviewQualityDecisionTool,
+    "review_correct": ReviewCorrectTool,
+    "review_metrics": ReviewMetricsTool,
+    "review_session": ReviewSessionTool,
+    "review_link": ReviewLinkTool,
+    "review_session_plan": ReviewSessionPlanTool,
+    "review_artifact_status": ReviewArtifactStatusTool,
 }
 
 #: MCP ``ToolAnnotations`` per tool, so a client can auto-approve reads and
@@ -179,6 +200,60 @@ TOOL_ANNOTATIONS: dict[str, dict[str, bool]] = {
         "openWorldHint": True,
     },
     "review_hint": {
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+    "review_reveal": {
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+    "review_quality": {
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+    "review_quality_decision": {
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+    "review_correct": {
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+    "review_metrics": {
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+    "review_session": {
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+    "review_link": {
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+    "review_session_plan": {
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+    "review_artifact_status": {
         "readOnlyHint": True,
         "destructiveHint": False,
         "idempotentHint": True,
@@ -255,6 +330,8 @@ def _check() -> int:
     print(f"module gate       : {gate_detail}")
     print(f"review home       : {home}")
     print(f"mcp tools         : {len(TOOL_CLASSES)}")
+    skill = _skill_resource()
+    print(f"review skill      : {skill} (exists={skill.is_file()})")
     caps = capabilities.current()
     print(
         "capabilities      : "
@@ -299,10 +376,35 @@ All tools share one local store: DEEPTUTOR_REVIEW_HOME when set, otherwise
 
 Flow: review_specs (what exists) -> review_due (what has work today, across
 packs) -> review_today (start one pack) -> review_hint (only when stuck) ->
-review_attempt -> next item. review_generate builds a pack from one
+review_attempt -> review_reveal -> next item -> review_session(action=end).
+Pass the queue's session_id to review_hint and review_attempt. Report any quality
+warning for unchecked legacy packs. Draft packs need include_draft=true.
+review_quality reports evidence and human review. Use review_quality_decision
+only on explicit human instruction: verify enables study, reject blocks study
+and export, reset restores assessment. Decisions are audited. review_correct
+applies learner-approved edits. review_metrics reports progress. Returned
+items are marked shown, not confirmed seen.
+
+Use review_session_plan for one shared budget across packs. Start each
+chosen pack with review_today before recording any attempt.
+
+Use review_artifact_status to compare stored chapter fingerprints with an
+optional book manifest. Report match, drift, or unknown for each pack and
+explain the reason. The check is read-only.
+
+Use review_link to list effective Mastery links, apply a learner-approved
+binding, or retry queued projections. Show mastery_projection.status to the
+learner before reporting that an attempt updated Mastery.
+
+review_generate builds a pack from one
 knowledge-base chapter; review_plan schedules multi-week study;
 review_export_link returns one self-contained HTML page; review_export_tree
 writes the whole collection.
+
+Read review://book-figures for the diagram index and, on request,
+review://spec/{{spec_id}}/export for offline pack HTML. review_generate accepts
+wait_seconds (0–60, default 0) on start or poll. If pending, keep the job_id
+and poll again in about 20 seconds.
 
 Prefer review_due over review_today for several packs: review_today opens or
 reuses a session and records what was shown; review_due records nothing.
@@ -315,9 +417,8 @@ until its first attempt. Do not paste pack contents into the chat.
 review_generate's chapter must match a name derived from the knowledge-base
 file layout (第N章 / 第N讲 / chN / 实验N_xxx), else "chapter ... not found".
 
-The living-book, plan-naming, visual and figure rules are in the review skill
-(docs/skill/SKILL.md in the deeptutor-review-mcp repository). Never hand-edit
-a built book's HTML; rebuild it from its source.
+The living-book, plan-naming, visual and figure rules are in the bundled review
+skill at {skill}. Never hand-edit a built book's HTML; rebuild it from its source.
 
 Operators may append deployment notes through mcp-context.md."""
 
@@ -356,9 +457,15 @@ def _extra_context() -> str:
     return ""
 
 
+def _skill_resource():
+    from importlib.resources import files
+
+    return files("deeptutor.review").joinpath("skill", "SKILL.md")
+
+
 def build_instructions() -> str:
     """Base instructions plus the optional deployment note, if any."""
-    base = INSTRUCTIONS.strip()
+    base = INSTRUCTIONS.format(skill=_skill_resource()).strip()
     extra = _extra_context()
     return f"{base}\n\n---\n\n{extra}" if extra else base
 
@@ -369,10 +476,13 @@ def build_server() -> Server[Any, Any]:
     A fresh mapping of tool instances is created per call so tests can build
     isolated servers; the tools themselves hold no state.
     """
+    if capabilities.legacy_inline_answers():
+        logger.warning("Legacy inline answers enabled. MCP reveal auditing and limits do not cover inline answers.")
     tools = {name: tool_type() for name, tool_type in TOOL_CLASSES.items()}
     server: Server[Any, Any] = Server(
         SERVER_NAME, version=_package_version(), instructions=build_instructions()
     )
+    register_resources(server)
 
     @server.list_tools()
     async def list_tools() -> list[types.Tool]:
@@ -381,13 +491,16 @@ def build_server() -> Server[Any, Any]:
                 name=definition.name,
                 description=definition.description,
                 inputSchema=_input_schema(definition),
+                outputSchema=OUTPUT_SCHEMAS.get(definition.name),
                 annotations=_annotations(definition.name),
             )
             for definition in (tool.get_definition() for tool in tools.values())
         ]
 
     @server.call_tool()
-    async def call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
+    async def call_tool(
+        name: str, arguments: dict[str, Any],
+    ) -> types.CallToolResult | tuple[list[types.TextContent], dict[str, Any]]:
         tool = tools.get(name)
         if tool is None:
             # The SDK turns a raised exception into ``isError=True`` plus this
@@ -395,8 +508,11 @@ def build_server() -> Server[Any, Any]:
             raise ValueError(f"Unknown Review Studio tool: {name}")
 
         result = await tool.execute(**arguments)
+        content = [types.TextContent(type="text", text=result.content)]
+        if result.success and name in OUTPUT_SCHEMAS:
+            return content, json.loads(result.content)
         return types.CallToolResult(
-            content=[types.TextContent(type="text", text=result.content)],
+            content=content,
             isError=not result.success,
         )
 

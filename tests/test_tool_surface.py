@@ -69,4 +69,5 @@ def test_check_reports_ready(capsys) -> None:
     assert "module gate       : ok" in out
     assert out.count("mcp tools         : ") == 1
     assert f"mcp tools         : {len(TOOL_CLASSES)}" in out
-    assert len(TOOL_CLASSES) == 11
+    assert len(TOOL_CLASSES) == 20
+    assert "SKILL.md (exists=True)" in out

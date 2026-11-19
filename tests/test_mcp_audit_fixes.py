@@ -134,7 +134,7 @@ def test_formula_coefficient_matching_a_result_is_still_a_direction(service: Rev
 
 def test_completed_session_is_a_recoverable_conflict(service: ReviewService) -> None:
     service.put_spec(build_fixture_spec())
-    queue = service.today(SPEC_ID)
+    queue = service.today(SPEC_ID, include_draft=True)
     service.complete(SPEC_ID, queue["session_id"])
     result = asyncio.run(ReviewAttemptTool().execute(
         spec_id=SPEC_ID, item_id=ITEM_ID, session_id=queue["session_id"],

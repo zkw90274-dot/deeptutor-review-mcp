@@ -9,7 +9,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-stdio%20%7C%20Streamable%20HTTP-6f42c1)](https://modelcontextprotocol.io/)
 
-**11 个工具 · stdio / Streamable HTTP · 无云端账号 · 单租户 · 答案默认隐藏**
+**20 个工具 · stdio / Streamable HTTP · 无云端账号 · 单租户 · 答案默认隐藏**
 
 ---
 
@@ -56,7 +56,7 @@ flowchart LR
 
     subgraph server["deeptutor-review-mcp"]
         T["stdio / Streamable HTTP"]
-        A["11 个 Agent 工具"]
+        A["20 个 MCP 工具"]
         S["ReviewService"]
         R["调度 / 回放 / 质量门禁"]
     end
@@ -92,7 +92,7 @@ flowchart LR
 ```bash
 git clone https://github.com/zkw90274-dot/deeptutor-review-mcp.git
 cd deeptutor-review-mcp
-git checkout v1.7.3-r3
+git checkout main
 python -m venv .venv
 
 # Windows PowerShell
@@ -108,13 +108,14 @@ pip install .
 也可以直接从 git 安装：
 
 ```bash
-pip install "git+https://github.com/zkw90274-dot/deeptutor-review-mcp.git@v1.7.3-r3"
+pip install "git+https://github.com/zkw90274-dot/deeptutor-review-mcp.git@main"
 ```
 
-如果已经有 DeepTutor 1.7.3 环境，直接装 release wheel：
+如果已经有 DeepTutor 1.7.3 环境，从当前 `main` 构建并安装 wheel：
 
 ```bash
-python -m pip install --force-reinstall --no-deps deeptutor_review-1.7.3-3-py3-none-any.whl
+python -m pip wheel . --no-deps -w dist
+python -m pip install --force-reinstall --no-deps dist/deeptutor_review-1.7.3-3-py3-none-any.whl
 deeptutor-review-mcp --check
 ```
 
@@ -122,10 +123,12 @@ deeptutor-review-mcp --check
 |---|---|
 | 包版本 | `1.7.3` |
 | wheel build | `3` |
-| Git tag | `v1.7.3-r3` |
+| 当前 `main` | 20 工具、schema v9（R4–R6） |
+| 最近 release | `v1.7.3-r3`（旧工具面） |
 | 兼容核心 | DeepTutor `1.7.3` |
 | Python | `3.11+` |
 
+> README 和安装命令以当前 `main` 为准；`v1.7.3-r3` 是上一个公开发布，工具面较旧。
 > 运行安装请使用普通 `pip install .`，不要用 `pip install -e .`。
 > wheel 还会把模块清单写进共享的 `deeptutor` namespace；editable install
 > 不会合并这个数据文件。改完源码后重新执行 `pip install .` 即可。
@@ -142,7 +145,7 @@ deeptutor-review-mcp --check
 core deeptutor    : 1.7.3
 deeptutor-review  : 1.7.3
 module gate       : ok
-mcp tools         : 11
+mcp tools         : 20
 ready: versions match and the review module is enabled
 ```
 
@@ -220,7 +223,7 @@ deeptutor-review-mcp --transport streamable-http --host 127.0.0.1 --port 8767 --
 Agent 的职责是提问、记录和解释结果；**不要让它替你回答，也不要让它替你评分**。
 `review_attempt` 只接受学习者自己说出的三档判断。
 
-## 11 个工具
+## 20 个工具
 
 | 工具 | 作用 | 副作用 | 额外依赖 |
 |---|---|---|---|
@@ -228,18 +231,40 @@ Agent 的职责是提问、记录和解释结果；**不要让它替你回答，
 | `review_due` | 跨包汇总今天到期量、预计分钟、上次复习时间 | 无 | 无 |
 | `review_today` | 打开某包今日队列；答案和解析不下发 | 建会话、记浏览 | 无 |
 | `review_attempt` | 记录学习者自评，返回掌握度预测与下次复习时间 | 追加事件、改调度 | 无 |
-| `review_hint` | 分级提示：L1 指向概念，L2 收窄范围 | 无 | 无 |
+| `review_hint` | 分级提示，传会话 ID 可核对已发放提示数 | 提示账本 | 无 |
+| `review_reveal` | 揭示已作答题目的答案、解析和纠错反馈 | 揭示审计 | 无 |
+| `review_quality` | 查看来源匹配和 QA，可刷新账本 | 条件写入 | 无 |
+| `review_quality_decision` | 人工核验、拒绝或重置题包状态，保留审核记录 | 追加审核记录与状态字段 | 无 |
+| `review_correct` | 修订单题，保留作答历史 | 修订记录 | 无 |
+| `review_metrics` | 查看完成率、自评校准和客观正确率 | 无 | 无 |
+| `review_session` | 查会话状态或结束会话 | 结束时写入 | 无 |
+| `review_link` | 查看概念绑定，设置或移除覆盖映射，重试待投影事件 | 绑定和回填时写入 | 核心 Mastery |
+| `review_session_plan` | 用统一的时间和题量预算预览跨包复习 | 无 | 只读本机 Mastery 快照 |
+| `review_artifact_status` | 检查题包与活书的章节指纹 | 无 | 只读本机 manifest |
 | `review_weakness` | 按历史证据排最弱概念 | 无 | 无 |
 | `review_export_link` | 返回单包打印页 URL | 无 | DeepTutor 网页端 |
 | `review_export_tree` | 整库导出为 `<subject>/<chapter>.html` + `index.html` | 写文件 | 无 |
 | `review_book_figures` | 查活书某节有哪些插图 | 无 | 无 |
-| `review_generate` | 从知识库一章生成题包（后台任务） | 写题包 | 模型 + 知识库 |
+| `review_generate` | 从知识库一章生成题包，可用 `wait_seconds` 等待结果 | 写题包 | 模型 + 知识库 |
 | `review_plan` | 多周学习计划，镜像到日历/看板 | 写计划、日历；确认笔记时写笔记 | 知识库；草拟笔记可能用模型 |
+
+`review_quality`、`review_metrics`、`review_artifact_status` 提供结构化 MCP 输出，并保留一致的 JSON 文本。客户端可读取 `review://book-figures` 获取插图索引，或读取 `review://spec/{spec_id}/export` 获取只读离线 HTML。开始或轮询生成时，`wait_seconds` 可选 `0`–`60` 秒，默认 `0`。等待到期后用同一 `job_id` 继续轮询。
+
+### 质量状态与人工审核
+
+| 状态 | 含义 | 排期 / 导出 |
+|---|---|---|
+| `legacy` | v6 之前入库的旧包，未做来源核对 | 可排期，带警告 |
+| `draft` | 自动来源证据不足 | 默认不排期；显式 `include_draft=true` 或人工 `verify` 后可用 |
+| `verified` | 自动证据通过或人工确认 | 可排期、可导出 |
+| `rejected` | 人工拒绝 | 停止排期与导出 |
+
+自动评估只提供证据，不替人做决定。`review_quality_decision` 是人工闸门：`verify` 可把 legacy 或 draft 提升为可排期，`reject` 停止使用，`reset` 回到自动评估状态。审核人、时间、备注和每次决定都会追加保存，不修改题包内容、`content_hash` 或学习事件。
 
 ### 调用路径
 
 ```text
-读与练: review_specs -> review_due -> review_today -> review_hint -> review_attempt -> review_weakness
+读与练: review_specs -> review_due -> review_today -> review_hint -> review_attempt -> review_reveal -> review_session
 生成:   review_generate -> 质量门禁 -> review_specs -> review_today
 计划:   review_plan create -> today -> complete -> confirm_note
 导出:   review_export_link（在线） / review_export_tree（离线）
@@ -316,8 +341,7 @@ DEEPTUTOR_REVIEW_HOME/
 
 备份这个目录，就等于备份学习者的全部复习历史。
 
-SQLite 库会在打开时自动向前迁移（当前 schema：`5`，新增
-`review_events.learner_quote`）。**新库不会被旧版本静默降级**：旧包打开新库会
+SQLite 库会在打开时自动向前迁移（当前 schema：`9`）。v6 增加提示账本、揭示审计、质量账本与来源锚点；v7 增加 Mastery 绑定与投影队列；v8 增加题包指纹；v9 增加人工审核字段与追加式审核历史。**新库不会被旧版本静默降级**：旧包打开新库会
 直接报 `review database schema N is newer than this package`。跨版本移动工作区前，
 先备份 `review.sqlite3`。
 
@@ -345,7 +369,7 @@ The reasoning_content in the thinking mode must be passed back to the API
 这是核心 question/quiz pipeline 的问题，不是 MCP 工具本身；上游 issue 见
 [HKUDS/DeepTutor#2766](https://github.com/HKUDS/DeepTutor/issues/2766)。
 在修复版核心发布前，生成时改用非 thinking 模型（例如 `deepseek-chat`）。
-其余十个工具不受影响。
+其余工具不受影响。
 
 ### `review_export_link` 打不开
 

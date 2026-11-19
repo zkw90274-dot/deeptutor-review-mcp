@@ -12,7 +12,7 @@ tags: [education, review, spaced-repetition]
 # Review Studio
 
 Review Studio schedules the learner's review with a spaced-repetition
-scheduler. These eleven tools read and write the same store as the Review Studio
+scheduler. These nineteen tools read and write the same store as the Review Studio
 overview page and the offline export, so a rating recorded here is the
 learner's real review history. `review_generate` is the one tool that creates a
 pack instead of consuming one.
@@ -38,14 +38,29 @@ pack instead of consuming one.
 | `review_specs` | List review packs with their IDs, item and concept counts, and generation quality status. | Optional `limit` (1–100, default 50), `offset` (default 0). |
 | `review_due` | Summarise today's queued, due and new items, estimated minutes, recovery flag and last review time per pack. The call is read-only and returns no question text. | Optional `subject` (substring of the pack title), `limit` (1–100, default 50), `offset` (default 0). |
 | `review_today` | Return today's queue for one pack: the budget, planned minutes, and each due item's kind, stem and options, with answers and explanations deliberately withheld. When the pack has an exam date, the payload carries an `exam` block (`days_left`, `mode`: sprint within 14 days, final_week within 3) you can mention to the learner. | `spec_id` (verbatim from `review_specs`). |
-| `review_attempt` | Record the learner's own self-assessment of one item and let the scheduler set its next review date. A `good` reported after any hint is stored as `hard`. | `spec_id`, `item_id` (both verbatim from `review_today`), `rating` (`again`, `hard`, or `good`), optional `session_id` (pass back the value from `review_today`), optional `submission_id` (idempotency key for retrying the same rating), optional `hints_used` (0-2, the number of hints you actually showed), optional `confidence` (0-100, only when the learner volunteers it, never invented). |
+| `review_attempt` | Record the learner's self-assessment and next review date. Hints can turn `good` into `hard`. Use `review_reveal` for the answer. | `spec_id`, `item_id`, `session_id` from `review_today`, `rating` (`again`, `hard`, or `good`), optional `submission_id`, `hints_used`, `answer`, `elapsed_ms`, `confidence`, `learner_quote`. |
+| `review_reveal` | Return the answer and feedback for a recorded attempt. Every successful call uses one reveal from the session's limit. | `spec_id`, `event_id` from `review_attempt`. |
+| `review_quality` | Inspect source support, QA gates, human reviewer, review time, note and support-level distribution. | `spec_id`, optional `refresh` (reassess and update the evidence while preserving a human decision). |
+| `review_quality_decision` | Record a human decision. `verify` makes legacy or draft packs schedulable, `reject` removes a pack from scheduling and export, and `reset` restores the saved assessment state or legacy when no assessment exists. Every call appends history. | `spec_id`, `decision` (`verify`, `reject`, or `reset`), optional `note` (up to 2000 characters). |
+| `review_correct` | Apply an agreed edit and recheck the pack while preserving its learning history and item identity. | `spec_id`, `item_id`, `patch` with `stem`, `options`, `answer`, `explanation`, `difficulty`, or `source_ids`. |
+| `review_metrics` | Read retention, session completion, self-rating calibration, and objective accuracy. | `spec_id`, optional `days` (1–365, default 30). |
+| `review_session` | Read the current session or end it when the learner is finished. `status` is read-only. | `action` (`status` or `end`), `spec_id`, `session_id` required for `end`. |
+| `review_link` | List effective Mastery links, bind an approved target, remove an override or retry pending projections. | `action` (`list`, `bind`, `unbind`, `backfill`), `spec_id`. Use `concept_id` for changes, plus `mastery_path_id` and `knowledge_point_id` for binding. Optional `source` (`manual` or `auto`) and `confidence` (0–1). |
+| `review_session_plan` | Preview questions across packs under one time and item budget. | Optional `spec_ids`, `daily_minutes` (1–240, default 60), `limit` (1–12, default 12), `include_draft` (default false). |
+| `review_artifact_status` | Compare stored pack chapter fingerprints with a living-book manifest. | Optional `spec_id`, `subject`. Read-only. |
 | `review_hint` | Give the learner a graded hint for one item without revealing the answer: level 1 names the tested concept, level 2 restates its definition (and formula when the pack has one); when the pack has no definition, level 2 points at the definition to recall and the source material instead of repeating level 1. The text is derived deterministically from the pack and leak-checked against the answer and every option; if that check fails it falls back to source-chapter guidance. | `spec_id`, `item_id` (both verbatim from `review_today`), optional `level` (`1` or `2`, default `1`; offer 1 first). |
 | `review_weakness` | Show the pack's weakest concepts with their weakness score and evidence count, read-only. | `spec_id` (verbatim from `review_specs`). |
 | `review_export_link` | Give the learner the URL of the printable review page for one pack. The URL is served by the DeepTutor web app, so it needs that app running and the learner signed in; in a standalone MCP deployment offer `review_export_tree` instead. The payload carries `url` (relative) and, when the deployment configures a public base URL, `absolute_url`; give `absolute_url` when present. | `spec_id` (verbatim from `review_specs`). |
 | `review_export_tree` | Export packs as `<out_dir>/<subject>/<chapter>.html` and `<out_dir>/index.html`. A rebuild can replace or remove pages tracked by a valid export checksum. If an existing personal or legacy page conflicts, preserve it and choose a fresh export destination. Packs failing the QA gate are skipped and reported. | `out_dir` (optional, defaults to `<review home>/exports`), `subjects` (optional array of subject names, omit for every subject in the store). |
 | `review_book_figures` | List the diagrams the living books print, section by section: each entry carries the section number, title, book anchor and figure caption, optionally filtered to one subject or one planned chapter. Figures are inline SVG inside the built book, so this is how a reading pointer can name the diagram (图 2-1) instead of sending the learner into text only. Read-only. | `subject` (optional), `chapter` (optional, a planned chapter name). |
 | `review_plan` | Plan and run a multi-week study course for one subject. `create` takes the knowledge base, the chapter list, an end date and a daily budget, spreads the reading across days, and refuses a schedule that does not fit; each planned day is mirrored onto the workbench calendar and task board (best-effort). `today` returns today's study tasks, the due-review count across the subject's packs, and overdue sessions; `complete` marks one session done and drafts the chapter note once the chapter is finished; `confirm_note` writes that draft into the Co-Writer notebook; `replan` rebuilds the remaining schedule from today; `sync_calendar` pulls whole-day calendar drags back into the plan; `status` lists plans and progress. | `action` (`create`/`today`/`complete`/`replan`/`confirm_note`/`status`/`sync_calendar`), `subject` (KB name), `chapters` (verbatim from `review_generate`'s chapter list), `start_date`, `end_date`, `daily_minutes` (15-240, default 60), `weekly_budget` (for `replan`: seven comma-separated minutes, Monday..Sunday, `0` = day off, e.g. `90,120,90,120,90,120,360`; the end date is derived from the remaining work), `plan_id`, `date`, `seq`, `self_note`, `note_id` — only the ones the action needs. |
-| `review_generate` | Generate a new pack from one knowledge-base chapter or lecture group. Three modes: call with `kb` only to list the chapter/lecture groups first, with `kb` + `chapter` to start a background generation job, or with `kb` + `job_id` to poll that job. Once a job is started, every call returns in seconds — the generation itself runs in the background and takes minutes. | `kb` (knowledge base name), `chapter` (verbatim from the chapter list; mutually exclusive with `job_id`), `job_id` (from the start call, to poll its status), optional `num_questions` (default 12, clamped to 5-20), optional `question_types` (`choice` and/or `written`, default both), optional `difficulty`. |
+| `review_generate` | List chapters, start a background generation job, or poll an existing job. | `kb`, `chapter` (verbatim from the list) or `job_id`, optional `num_questions` (5–20, default 12), `question_types` (`choice` and/or `written`, default both), `difficulty`, `replace` (default false), `wait_seconds` (0–60, default 0, start and poll only). |
+
+A quality decision is a human audit action. Ask for explicit direction before
+calling `review_quality_decision`; do not infer approval or rejection from the
+learner asking to study. `review_quality` reports the effective state and the
+saved assessment. A `verify` enables scheduling, `reject` blocks scheduling and
+export, and `reset` restores the saved assessment state.
 
 ## Generating a new pack
 
@@ -59,13 +74,15 @@ When the learner asks for review material that does not exist yet:
    knowledge base has no chapter/lecture-structured documents and offer
    `review_specs` for the packs that already exist.
 3. Tell them generation takes minutes, then call `review_generate` with `kb`
-   and the chapter name verbatim. It returns a `job_id` right away and the
+   and the chapter name verbatim. With the default wait it returns a `job_id` right away and the
    generation runs in the background. Adjust `num_questions`, `question_types`,
    or `difficulty` only if they ask. Regenerating a chapter that already has a
    pack is rejected instead of silently replacing it: tell the learner, and
    pass `replace=true` only if they explicitly choose to replace that pack.
-4. Poll `review_generate` with `kb` and the `job_id` every ~20 seconds, telling
-   the learner it is still running between polls. A large batch can take five
+4. Poll `review_generate` with `kb` and the `job_id` every ~20 seconds. You can
+   pass `wait_seconds` on the start or poll call. If the wait expires, keep
+   the same `job_id` and resume polling. Tell the learner it is still running
+   between polls. A large batch can take five
    to ten minutes, so keep polling until the job reports `done` or `failed`
    (or the learner asks you to stop — then hand them the `job_id` so they can
    resume). Never start a second generation for the same chapter while one is
@@ -98,12 +115,52 @@ When the learner asks for review material that does not exist yet:
    "Helping a stuck learner" below instead of revealing the answer.
 7. Call `review_attempt` with that item's `item_id`, the rating they gave
    transcribed as `good`, `hard`, or `again`, and the `session_id` from
-   `review_today` passed back verbatim. Then tell them the correct answer and
-   explanation from the result and when the card returns.
+   `review_today` passed back verbatim. Call `review_reveal` with the returned
+   `spec_id` and `event_id`, then explain the answer and when the card returns.
 8. Continue with the next item from the same `review_today` list. When the
    learner asks what to focus on, call `review_weakness`; when they want to
    print or open a page, call `review_export_link` (needs the DeepTutor web app);
    when they want the whole library as classified offline folders, call `review_export_tree`.
+9. End the sitting with `review_session(action="end")`. Pass the session ID
+   and use `review_metrics` to summarize progress if requested.
+
+Pass `session_id` to `review_hint` so the ledger can count issued hints. Tell
+the learner about any `quality_warning`. Older packs are marked `legacy` and
+stay schedulable. `review_today` and `review_due` accept `include_draft=true`
+when the learner explicitly chooses to study a draft. Text matching provides
+source evidence and may miss altered wording or factual errors.
+
+Use `review_link(action="list")` to inspect a pack's effective Mastery links.
+Confirm the path and point with the learner before binding. `unbind` removes
+the override and restores any embedded mapping. `backfill` retries pending
+events for their original target in batches of up to 20. Each event can be
+retried up to three times after its initial projection. Check
+`mastery_projection.status` before saying that a review updated Mastery.
+
+Use `review_session_plan` when the learner wants to review multiple packs on
+one budget. Explain their selected workload and any pack quality warnings.
+The read-only preview orders due questions ahead of new questions and rotates
+subjects within each group. Start each selected pack with `review_today` and
+use its current item and session IDs when calling `review_attempt`.
+
+Use `review_artifact_status` to check pack and living-book alignment. Report
+`match`, `drift`, or `unknown` together with the per-pack reason. `match`
+compares the stored source fingerprint with the manifest fingerprint. Use
+`spec_id` to check a single pack or `subject` to check a subject.
+
+MCP clients can read `structuredContent` or parse the identical JSON text for
+`review_quality`, `review_metrics`, and `review_artifact_status`. Read the
+resource `review://book-figures` for the local figure index. When the learner
+asks for an offline pack, `review://spec/{spec_id}/export` returns the HTML
+in memory. It applies the export quality and size limits and shows a placeholder
+for any TikZ figure that needs compilation.
+
+Use `support_details` from a fresh quality assessment to explain each item's
+`support_reason` and `matched_terms`. Treat `weak` and `none` as requiring
+manual review. `exact` and `term` describe textual support for a statement or
+formula. Check conditions and worked answers against the source before
+claiming correctness. For an audit without refreshing saved quality, use
+`scripts/audit_provenance.py` on a database snapshot.
 
 ## Helping a stuck learner
 
@@ -113,7 +170,7 @@ When the learner asks for review material that does not exist yet:
   again with level 2. Never show both levels at once, and never more than two
   hints; extending the ladder turns the exercise into a reading task.
 - If they are still stuck after two hints, take the answer path through
-  `review_attempt` (record `again` and read out the answer and explanation).
+  `review_attempt` (record `again`), followed by `review_reveal`.
   Do not keep generating hints.
 - Count every hint you actually showed and pass that number as `hints_used` to
   `review_attempt`. A hinted answer the learner reports as `good` is stored as

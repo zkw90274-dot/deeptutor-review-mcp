@@ -543,11 +543,12 @@ def today(
     spec_id: str,
     session_id: str | None = Query(default=None),
     read_only: bool = Query(default=False, description="Preview without opening a session or recording views."),
+    include_draft: bool = Query(default=False),
 ) -> dict[str, Any]:
     if not read_only:
-        return start_today(spec_id, session_id)
+        return start_today(spec_id, session_id, include_draft)
     try:
-        return ReviewService(ReviewStore(read_only=True)).today(spec_id, read_only=True)
+        return ReviewService(ReviewStore(read_only=True)).today(spec_id, read_only=True, include_draft=include_draft)
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
 
@@ -556,9 +557,10 @@ def today(
 def start_today(
     spec_id: str,
     session_id: str | None = Query(default=None),
+    include_draft: bool = Query(default=False),
 ) -> dict[str, Any]:
     try:
-        return _service().today(spec_id, session_id=session_id)
+        return _service().today(spec_id, session_id=session_id, include_draft=include_draft)
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
 
@@ -624,6 +626,7 @@ async def _run_attempt(
         else:
             reason = "projection_failed"
         result.setdefault("state_source_reason", reason)
+    result.pop("grader_basis", None)
     return result
 
 
@@ -631,9 +634,13 @@ async def _run_attempt(
 def metrics(
     spec_id: str,
     days: int = Query(default=7, ge=1, le=365),
+    include_objective: bool = Query(default=False),
 ) -> dict[str, Any]:
     try:
-        return _service().metrics(spec_id, days=days)
+        result = _service().metrics(spec_id, days=days)
+        if not include_objective:
+            result.pop("objective_accuracy", None)
+        return result
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
 

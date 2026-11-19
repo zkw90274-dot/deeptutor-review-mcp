@@ -295,8 +295,8 @@ def test_export_css_and_app_js_budgets() -> None:
     # P2 study aids (~1 KB), P5 table/code blocks (~4 KB), the explanation
     # paragraph/list splitter (~1.5 KB) and the emphasis pass (~1.5 KB) are the
     # largest additions; the per-item answer toggle adds a few hundred bytes.
-    # Still far below a typical bundle — keep the offline page's JS under 56 KB.
-    assert len(scripts[0].encode("utf-8")) <= 56_000
+    # The source citation and quality watermark add less than 500 bytes.
+    assert len(scripts[0].encode("utf-8")) <= 56_500
 
 
 def test_payload_escape_prevents_script_breakout() -> None:

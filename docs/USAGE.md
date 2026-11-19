@@ -32,13 +32,16 @@ python -m pip wheel . --no-deps -w dist
 python -m pip install --force-reinstall --no-deps dist/deeptutor_review-1.7.3-3-py3-none-any.whl
 ```
 
-### 1.3 从已发布的包安装
+### 1.3 从当前 main 构建
 
-从 [GitHub Release](https://github.com/zkw90274-dot/deeptutor-review-mcp/releases/tag/v1.7.3-r3) 下载 wheel。在已经安装 DeepTutor 1.7.3 及其依赖的环境中运行：
+当前 `main` 是 20 工具、schema v9 的开发版；`v1.7.3-r3` 是上一个公开发布，工具面较旧。需要当前能力时从 `main` 构建 wheel：
 
 ```bash
-python -m pip install --force-reinstall --no-deps deeptutor_review-1.7.3-3-py3-none-any.whl
+python -m pip wheel . --no-deps -w dist
+python -m pip install --force-reinstall --no-deps dist/deeptutor_review-1.7.3-3-py3-none-any.whl
 ```
+
+已经有 DeepTutor 1.7.3 环境时，安装时加 `--no-deps`，避免 pip 改动核心版本。
 
 ### 安装后检查
 
@@ -113,7 +116,7 @@ python -m deeptutor.review.mcp_server --transport streamable-http
 想补充本机目录或课程约定，写 `<review home>/mcp-context.md`，或让
 `DEEPTUTOR_REVIEW_MCP_CONTEXT` 指向一个文件；内容会追加在通用说明之后。
 
-### 4.4 十一个工具
+### 4.4 二十个工具
 
 | 工具 | 用途 |
 |---|---|
@@ -122,11 +125,20 @@ python -m deeptutor.review.mcp_server --transport streamable-http
 | `review_today` | 今日队列；答案与解析刻意不下发 |
 | `review_attempt` | 记录三档自评（`again`/`hard`/`good`），幂等键 `submission_id` |
 | `review_hint` | 两级提示（L1 点名考点，L2 复述定义/公式），泄露检查失败则回落章节指引 |
+| `review_reveal` | 揭示已作答题目的反馈，并记入会话额度 |
+| `review_quality` | 查看门禁、每题来源支持、重复和泄题检查 |
+| `review_quality_decision` | 人工 verify/reject/reset 题包状态，追加审核历史 |
+| `review_correct` | 修订单题并保留作答历史 |
+| `review_metrics` | 查看会话完成率、自评校准和客观正确率 |
+| `review_session` | 查询或结束会话 |
+| `review_link` | 查询和设置 Mastery 绑定，重试待回填事件 |
+| `review_session_plan` | 只读预览跨包复习队列，默认 60 分钟、最多 12 题 |
+| `review_artifact_status` | 只读检查题包与活书的章节指纹，支持 `spec_id` 和 `subject` 筛选 |
 | `review_weakness` | 只读薄弱概念排序，不写库 |
 | `review_export_link` | 单文件离线 HTML 链接 |
 | `review_export_tree` | 按科目导出复习包和 `index.html`。遇同名旧版或个人 HTML 时保留原文件，请换新目录。 |
 | `review_book_figures` | 活书插图索引：哪一节有哪几张图（按科目 / 计划章过滤），只读 |
-| `review_generate` | 从知识库某一章生成新包（同章重复需 `replace=true`） |
+| `review_generate` | 从知识库某一章生成新包，开始或查进度时可传 `wait_seconds`（`0`–`60`，默认 `0`） |
 | `review_plan` | 多周计划：create/today/complete/replan/confirm_note/status/sync_calendar |
 
 工具行为与参数的完整说明见 [SKILL.md](https://github.com/zkw90274-dot/deeptutor-review-mcp/blob/main/docs/skill/SKILL.md)。
@@ -138,7 +150,8 @@ python -m deeptutor.review.mcp_server --transport streamable-http
    `chapter` 必须是知识库按文件布局推导出的章名：`第N章`、`第N讲`、`chN`、
    `实验N_xxx`；对不上会返回 `chapter ... not found`。
 3. `review_specs` 找到新包 id → `review_today` 取队列（新包首次作答前没有到期卡）。
-4. 逐题作答后 `review_attempt` 记录自评；不会时先走 `review_hint` L1，再 L2。
+4. 提示与作答使用 `review_today` 返回的 `session_id`。作答后用 `review_attempt` 记录自评，再用 `review_reveal` 展示反馈。
+5. 结束时用 `review_session(action="end")` 收尾。旧包带来源警告，草稿需显式传入 `include_draft=true`。
 5. 想要离线页：`review_export_link`，得到单个 HTML，断网可开，可打印成 PDF；要给一整批包做分类目录，用 `review_export_tree`（默认写到 `<review home>/exports`）。
 
 ## 6. 数据与备份

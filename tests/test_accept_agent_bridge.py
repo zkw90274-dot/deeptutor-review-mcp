@@ -25,10 +25,10 @@ def test_agent_bridge_covers_all_tools() -> None:
     assert completed.returncode == 0, output
     from deeptutor.review.agent_tools import REVIEW_AGENT_TOOL_NAMES
 
-    assert len(REVIEW_AGENT_TOOL_NAMES) == 11
+    assert len(REVIEW_AGENT_TOOL_NAMES) == 20
     assert "every tool named per contract" in output
-    assert "'review_hint': 3" in output
-    assert "'review_generate': 7" in output
+    assert "'review_hint': 4" in output
+    assert "'review_generate': 8" in output
     assert "14/14 steps passed" in output
     # A renamed or dropped tool must break this test, not just the count.
     for name in REVIEW_AGENT_TOOL_NAMES:

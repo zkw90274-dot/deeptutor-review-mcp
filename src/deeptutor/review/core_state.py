@@ -17,9 +17,11 @@ from __future__ import annotations
 
 import logging
 import os
+import sqlite3
+from contextlib import closing
 from itertools import groupby
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from deeptutor.learning.models import RepetitionState
 from deeptutor.learning.policy import find_knowledge_point
@@ -55,6 +57,17 @@ def linkage_allowed(path_id: str) -> bool:
     return allowed is None or path_id in allowed
 
 
+def effective_link(
+    spec: ReviewSpec, concept: Concept, overlays: dict[str, dict[str, Any]]
+) -> tuple[str, str] | None:
+    overlay = overlays.get(concept.id)
+    if overlay is not None:
+        return overlay["mastery_path_id"], overlay["knowledge_point_id"]
+    if spec.mastery_path_id and concept.knowledge_point_id:
+        return spec.mastery_path_id, concept.knowledge_point_id
+    return None
+
+
 @dataclass(frozen=True)
 class ConceptState:
     state: RepetitionState
@@ -83,6 +96,26 @@ def load_core_progress(path_id: str) -> Any | None:
         # repr keeps log lines single-line and avoids exception-class-only
         # messages hiding the path that failed.
         logger.warning("Could not load core mastery path %r: %r", path_id, exc)
+        return None
+
+
+def load_core_progress_read_only(path_id: str) -> Any | None:
+    if not path_id or not linkage_allowed(path_id):
+        return None
+    from deeptutor.learning.migration import mastery_v2_root
+    from deeptutor.learning.models import LearningProgress
+    from deeptutor.services.path_service import get_path_service
+
+    try:
+        root = mastery_v2_root(get_path_service().get_workspace_dir() / "learning")
+        path = (root / "mastery.sqlite3").resolve()
+        if not path.is_file():
+            return None
+        with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as conn:
+            row = conn.execute("SELECT state_json FROM mastery_paths WHERE path_id = ?", (path_id,)).fetchone()
+        return LearningProgress.model_validate_json(row[0]) if row else None
+    except (OSError, sqlite3.Error, ValueError, RuntimeError):
+        logger.warning("Could not read core mastery snapshot for %r", path_id)
         return None
 
 
@@ -142,11 +175,14 @@ def _core_state_for_indexed(
     kp_index: dict[str, Any],
     *,
     now: float,
+    knowledge_point_id: str | None = None,
 ) -> tuple[RepetitionState | None, bool]:
     """Return ``(state, is_synthetic_initial)`` for a linked objective."""
-    if not spec.mastery_path_id or not concept.knowledge_point_id:
-        return None, False
-    kp = kp_index.get(concept.knowledge_point_id)
+    if knowledge_point_id is None:
+        if not spec.mastery_path_id or not concept.knowledge_point_id:
+            return None, False
+        knowledge_point_id = concept.knowledge_point_id
+    kp = kp_index.get(knowledge_point_id)
     if kp is None:
         return None, False
 
@@ -194,25 +230,35 @@ def states_for_spec(
     store: Any,
     *,
     now: float,
+    progress_loader: Callable[[str], Any | None] | None = None,
 ) -> dict[str, ConceptState]:
     """Resolve every concept once: core for linked, local replay otherwise."""
-    has_linkage = bool(spec.mastery_path_id) and any(
-        concept.knowledge_point_id for concept in spec.concepts
-    )
-    progress = load_core_progress(spec.mastery_path_id) if has_linkage else None
-    kp_index = _kp_index(progress) if progress is not None else {}
-    task_by_kp = _core_tasks(progress, now=now) if progress is not None else {}
+    overlays = store.links_for_spec(spec.id)
+    paths: dict[str, tuple[Any, dict[str, Any], dict[str, Any]] | None] = {}
     scheduler = scheduler_for(spec)
     result: dict[str, ConceptState] = {}
     local_concepts: dict[str, Concept] = {}
+    local_reasons: dict[str, str] = {}
     for concept in spec.concepts:
-        task = task_by_kp.get(str(concept.knowledge_point_id)) if concept.knowledge_point_id else None
+        target = effective_link(spec, concept, overlays)
+        task = None
         core: RepetitionState | None = None
         initial = False
-        if progress is not None:
-            core, initial = _core_state_for_indexed(
-                spec, concept, progress, kp_index, now=now
-            )
+        if target is not None:
+            path_id, point_id = target
+            if path_id not in paths:
+                progress = (progress_loader or load_core_progress)(path_id)
+                paths[path_id] = (
+                    (progress, _kp_index(progress), _core_tasks(progress, now=now))
+                    if progress is not None else None
+                )
+            context = paths[path_id]
+            if context is not None:
+                progress, kp_index, tasks = context
+                task = tasks.get(point_id)
+                core, initial = _core_state_for_indexed(
+                    spec, concept, progress, kp_index, now=now, knowledge_point_id=point_id
+                )
         if core is not None:
             # A synthetic core state means "the core has never seen this
             # objective". If Review has answers for it, the core write did not
@@ -226,6 +272,7 @@ def states_for_spec(
             )
         if core is None or initial:
             local_concepts[concept.key] = concept
+            local_reasons[concept.id] = "core_unavailable" if target else "no_linkage"
     with store.replay_events(spec.id) as rows:
         for key, events in groupby(rows, key=lambda event: event["concept_key"]):
             concept = local_concepts.pop(key, None)
@@ -235,18 +282,15 @@ def states_for_spec(
             result[concept.id] = ConceptState(
                 state=replay_state(concept, events, now=now, scheduler=scheduler),
                 source="review",
-                reason="core_state_missing_local_history" if previous else (
-                    "core_unavailable" if has_linkage else "no_linkage"
-                ),
-                task=task_by_kp.get(str(concept.knowledge_point_id)),
+                reason="core_state_missing_local_history" if previous else local_reasons[concept.id],
+                task=previous.task if previous else None,
             )
     for concept in local_concepts.values():
         if concept.id not in result:
             result[concept.id] = ConceptState(
                 state=replay_state(concept, (), now=now, scheduler=scheduler),
                 source="review",
-                reason="core_unavailable" if has_linkage else "no_linkage",
-                task=task_by_kp.get(str(concept.knowledge_point_id)),
+                reason=local_reasons[concept.id],
             )
     return result
 

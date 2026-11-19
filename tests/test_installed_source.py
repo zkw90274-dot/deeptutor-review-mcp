@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import sysconfig
 from importlib import metadata
+from importlib.resources import files
 from pathlib import Path
 
 
@@ -89,6 +90,13 @@ def test_installed_manifest_matches_source_tree() -> None:
     )
     installed = _installed_path("deeptutor/modules/manifests/review.json")
     assert _digest(source) == _digest(installed), "manifest drift; rebuild/install"
+
+
+def test_wheel_ships_skill_md() -> None:
+    name = "deeptutor/review/skill/SKILL.md"
+    records = _installed_distribution().files or ()
+    assert name in {record.as_posix() for record in records}
+    assert _installed_path(name).read_bytes() == files("deeptutor.review").joinpath("skill", "SKILL.md").read_bytes()
 
 
 def test_module_catalog_still_resolves_to_the_installed_distribution() -> None:

@@ -5,8 +5,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 
-def test_http_attempt_writes_real_mastery_and_replays_once(tmp_path: Path) -> None:
+
+@pytest.mark.parametrize("overlay", [False, True], ids=["spec", "overlay"])
+def test_http_attempt_writes_real_mastery_and_replays_once(tmp_path: Path, overlay: bool) -> None:
     source = Path(__file__).resolve().parents[1] / "src" / "deeptutor"
     program = f"""
 import deeptutor
@@ -22,10 +25,18 @@ store = LearningStore()
 store.save(LearningProgress(book_id='real-projection', name='真实写回测试', modules=[LearningModule(id='m', name='模块', order=1, knowledge_points=[KnowledgePoint(id='kp', name='串联谐振', type='concept', module_id='m')])]))
 payload = build_fixture_spec().model_dump(mode='json')
 payload['content_hash'] = ''
-payload['mastery_path_id'] = 'real-projection'
-payload['concepts'][0]['knowledge_point_id'] = 'kp'
+if not {overlay!r}:
+    payload['mastery_path_id'] = 'real-projection'
+    payload['concepts'][0]['knowledge_point_id'] = 'kp'
 spec = ReviewSpec.model_validate(payload)
-ReviewService().put_spec(spec)
+review = ReviewService()
+review.put_spec(spec)
+if {overlay!r}:
+    import asyncio, json
+    from deeptutor.review.agent_tools import ReviewLinkTool
+    binding = asyncio.run(ReviewLinkTool().execute(action='bind', spec_id=spec.id, concept_id=spec.concepts[0].id, mastery_path_id='real-projection', knowledge_point_id='kp'))
+    assert binding.success and json.loads(binding.content)['linked_concepts'] == 1, binding.content
+    assert review.store.get_spec(spec.id).content_hash == spec.content_hash
 client = TestClient(app)
 attempt = {{'item_id': 'item-resonance-choice', 'rating': 'good', 'answer': 1, 'submission_id': 'real-once', 'session_id': 'real-session'}}
 response = client.post('/api/review/' + spec.id + '/attempt', json=attempt)

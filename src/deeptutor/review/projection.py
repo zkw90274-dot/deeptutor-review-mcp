@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from typing import Any, Mapping
 
 from deeptutor.learning.assessment import AssessmentRecord, record_assessment
 
+from deeptutor.review.core_state import effective_link
 from deeptutor.review.models import Concept, Item, ReviewSpec
 from deeptutor.review.storage import ReviewStore
 
@@ -76,9 +76,11 @@ def build_assessment_record(
     event: Mapping[str, Any],
     *,
     user_answer: object = None,
+    target: tuple[str, str] | None = None,
 ) -> AssessmentRecord | None:
     """Build the core record, or ``None`` when this concept is review-only."""
-    if not spec.mastery_path_id or not concept.knowledge_point_id:
+    target = target or effective_link(spec, concept, {})
+    if target is None:
         return None
     rating = str(event.get("rating") or "")
     if rating not in _RATING_TO_RESULT:
@@ -103,8 +105,8 @@ def build_assessment_record(
         material_title=spec.title,
         section_id=concept.id,
         section_title=concept.name,
-        mastery_path_id=spec.mastery_path_id,
-        knowledge_point_id=concept.knowledge_point_id,
+        mastery_path_id=target[0],
+        knowledge_point_id=target[1],
         attempt_count=1,
         # The event row is authoritative: a hinted answer must reach core as
         # hinted, or the mastery policy can never label it
@@ -225,46 +227,31 @@ def _result(
     return payload
 
 
-async def _project_attempt(
-    store: ReviewStore,
-    spec_id: str,
+async def _send_projection(
+    spec: ReviewSpec,
+    item: Item,
+    concept: Concept,
+    event: dict[str, Any],
+    target: tuple[str, str],
     attempt_result: Mapping[str, Any],
     *,
     user_answer: object = None,
 ) -> dict[str, Any]:
     """Project one already-persisted Review attempt into the mastery path."""
-    try:
-        spec = await asyncio.to_thread(store.get_spec, spec_id)
-        item = spec.item_by_id(str(attempt_result.get("item_id") or ""))
-        concept = spec.concept_by_id(str(attempt_result.get("concept_id") or ""))
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Mastery projection could not resolve %s: %r", spec_id, exc)
-        return _result("failed", error="projection_error")
-
-    if not spec.mastery_path_id or not concept.knowledge_point_id:
-        return _result("skipped", diagnostics=["no_mastery_linkage"])
-
-    answer_ts = attempt_result.get("event_ts")
-    if not isinstance(answer_ts, (int, float)):
-        answer_ts = time.time()
+    path_id, point_id = target
     linked, reason, core_type, core_retention, core_predicted, had_state = await asyncio.to_thread(
         _linkage_preflight,
-        spec.mastery_path_id,
-        concept.knowledge_point_id,
-        now=float(answer_ts),
+        path_id,
+        point_id,
+        now=float(event["ts"]),
     )
     if not linked:
         # Do not call the core: its first call would persist the cleared
         # linkage and make every retry permanently non-healing.
         return _result("invalid_linkage", diagnostics=[reason])
 
-    submission_id = str(attempt_result.get("submission_id") or "")
-    event = await asyncio.to_thread(store.event_by_submission, submission_id)
-    if event is None:
-        return _result("failed", diagnostics=["event_not_found"])
-
     record = build_assessment_record(
-        spec, item, concept, event, user_answer=user_answer
+        spec, item, concept, event, user_answer=user_answer, target=target
     )
     if record is None:
         return _result("skipped", diagnostics=["invalid_rating_or_linkage"])
@@ -277,7 +264,7 @@ async def _project_attempt(
     except Exception as exc:  # noqa: BLE001 - Review answer is already durable
         logger.warning(
             "Mastery projection failed for %s/%r: %r",
-            spec_id,
+            spec.id,
             item.id,
             exc,
             exc_info=True,
@@ -303,8 +290,8 @@ async def _project_attempt(
             core_due, _ = await asyncio.wait_for(
                 asyncio.to_thread(
                     _read_core_due,
-                    spec.mastery_path_id,
-                    concept.knowledge_point_id,
+                    path_id,
+                    point_id,
                 ),
                 timeout=DIAGNOSTIC_TIMEOUT_SECONDS,
             )
@@ -337,6 +324,65 @@ async def _project_attempt(
     )
 
 
+async def _project_attempt(
+    store: ReviewStore,
+    spec_id: str,
+    attempt_result: Mapping[str, Any],
+    *,
+    user_answer: object = None,
+) -> dict[str, Any]:
+    event_id = str(attempt_result.get("event_id") or "")
+    event = await asyncio.to_thread(store.event_by_id, spec_id, event_id)
+    if event is None:
+        return _result("failed", diagnostics=["event_not_found"])
+
+    spec = await asyncio.to_thread(store.get_spec, spec_id)
+    try:
+        concept = spec.concept_by_key(event["concept_key"])
+        item = spec.item_by_id(event["item_id"])
+    except KeyError:
+        return _result("invalid_linkage", diagnostics=["review_identity_changed"])
+    if concept.id not in item.concept_ids:
+        return _result("invalid_linkage", diagnostics=["review_identity_changed"])
+
+    overlays = await asyncio.to_thread(store.links_for_spec, spec_id)
+    target = effective_link(spec, concept, overlays)
+    if target is None and await asyncio.to_thread(store.projection_job, event_id) is None:
+        return _result("skipped", diagnostics=["no_mastery_linkage"])
+
+    claim, attempts = await asyncio.to_thread(store.claim_projection, event, target)
+    attempt_id = f"review:{event_id}"
+    if claim == "applied":
+        return _result("duplicate", attempt_id=attempt_id)
+    if claim == "link_changed":
+        return _result("invalid_linkage", attempt_id=attempt_id, diagnostics=["queued_link_changed"])
+    if claim == "exhausted":
+        return _result("failed", attempt_id=attempt_id, error="projection_retry_limit")
+    if claim != "claimed" or target is None:
+        return _result("skipped", attempt_id=attempt_id, diagnostics=["projection_in_progress"])
+
+    try:
+        result = await _send_projection(spec, item, concept, event, target, attempt_result, user_answer=user_answer)
+    except Exception:
+        logger.exception("Could not project review event %s", event_id)
+        result = _result("failed", attempt_id=attempt_id, error="projection_error")
+
+    error = None
+    if result["status"] not in {"applied", "duplicate"}:
+        error = result.get("error") or next(iter(result["diagnostics"]), result["status"])
+    await asyncio.to_thread(store.finish_projection, event_id, attempts, error=error)
+    return result
+
+
+async def backfill_projections(store: ReviewStore, spec_id: str, *, limit: int = 20) -> list[dict[str, Any]]:
+    event_ids = await asyncio.to_thread(store.pending_projections, spec_id, limit=limit)
+    results = []
+    for event_id in event_ids:
+        result = await project_attempt(store, spec_id, {"event_id": event_id})
+        results.append({"event_id": event_id, **result})
+    return results
+
+
 async def project_attempt(
     store: ReviewStore,
     spec_id: str,
@@ -359,4 +405,4 @@ async def project_attempt(
         return _result("failed", error="projection_error")
 
 
-__all__ = ["build_assessment_record", "project_attempt"]
+__all__ = ["backfill_projections", "build_assessment_record", "project_attempt"]

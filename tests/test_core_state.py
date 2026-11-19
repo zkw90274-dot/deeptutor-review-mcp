@@ -92,8 +92,30 @@ def test_states_for_spec_reads_the_event_log_in_one_query(
 
     monkeypatch.setattr(storage_module.sqlite3, "connect", counted)
     core_state.states_for_spec(fixture_spec, service.store, now=NOW)
-    # Two concepts, but one connection: the per-concept reads were N+1.
-    assert len(calls) == 1
+    # One connection for the pack's overlays and one for the entire event log.
+    assert len(calls) == 2
+
+
+def test_core_state_resolves_overlay_and_spec_paths(service, linked_spec, monkeypatch) -> None:
+    service.put_spec(linked_spec)
+    overlay_path = "overlay-path"
+    overlay = _progress().model_copy(update={"book_id": overlay_path})
+    native = _progress(with_state=False)
+    seen = []
+
+    def load(path_id):
+        seen.append(path_id)
+        return {overlay_path: overlay, linked_spec.mastery_path_id: native}[path_id]
+
+    monkeypatch.setattr(core_state, "load_core_progress", load)
+    service.store.change_link(linked_spec, linked_spec.concepts[0].id, (overlay_path, "kp-series-resonance"))
+    states = core_state.states_for_spec(linked_spec, service.store, now=NOW)
+    assert seen == [overlay_path, linked_spec.mastery_path_id]
+    assert states[linked_spec.concepts[0].id].state.next_review_at == CORE_DUE
+    assert states[linked_spec.concepts[1].id].initial
+    assert service.store.get_spec(linked_spec.id).model_dump() == linked_spec.model_copy(
+        update={"quality": service.store.get_spec(linked_spec.id).quality}
+    ).model_dump()
 
 
 def test_missing_core_path_falls_back_to_local(

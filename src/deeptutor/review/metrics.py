@@ -256,6 +256,16 @@ def _calibration_stats(samples: Sequence[tuple[float, str]]) -> dict[str, Any]:
     }
 
 
+def objective_accuracy(events: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    judged = [event["correct"] for event in events if event.get("correct") is not None]
+    correct = sum(value == 1 for value in judged)
+    return {
+        "correct": correct,
+        "judged": len(judged),
+        "accuracy": round(correct / len(judged), 4) if judged else None,
+    }
+
+
 def learner_calibration(events: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     """Compare the learner's confidence with their own self-rating.
 

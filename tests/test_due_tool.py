@@ -96,13 +96,14 @@ def test_paginated_tools_cover_a_large_library(seeded: ReviewService) -> None:
             conn.execute("INSERT INTO review_specs VALUES (?, ?, ?, ?, ?)", (key, "", 0, index, pack.model_dump_json()))
 
     for tool, field, identifier in ((ReviewSpecsTool(), "specs", "id"), (ReviewDueTool(), "packs", "spec_id")):
-        first = json.loads(asyncio.run(tool.execute()).content)
+        options = {"include_draft": True} if field == "packs" else {}
+        first = json.loads(asyncio.run(tool.execute(**options)).content)
         assert first["count"] == 501
         assert len(first[field]) == 50
         assert first["next_offset"] == 50
         ids = []
         for offset in range(0, 501, 100):
-            response = json.loads(asyncio.run(tool.execute(offset=offset, limit=100)).content)
+            response = json.loads(asyncio.run(tool.execute(offset=offset, limit=100, **options)).content)
             assert response["count"] == 501
             assert len(response[field]) == min(100, 501 - offset)
             ids.extend(row[identifier] for row in response[field])

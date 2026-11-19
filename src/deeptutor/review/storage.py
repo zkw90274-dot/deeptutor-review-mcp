@@ -30,7 +30,9 @@ from deeptutor.learning.models import RepetitionState
 
 from deeptutor.review.models import ReviewSpec, canonical_json
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 9
+MAX_PROJECTION_RETRIES = 3
+PROJECTION_LEASE_SECONDS = 300
 SQLITE_TIMEOUT_SECONDS = 5.0
 MAX_EVENTS_PER_CONCEPT = 10_000
 #: An unfinished session older than this is closed automatically. Chat-only
@@ -137,6 +139,13 @@ class SubmissionConflict(ReviewStoreError):
 
 class VersionConflict(ReviewStoreError):
     pass
+
+
+@dataclass
+class ItemRevision:
+    item_id: str
+    patch: dict[str, Any]
+    number: int = 0
 
 
 @dataclass(frozen=True)
@@ -430,6 +439,97 @@ class ReviewStore:
                 CREATE INDEX IF NOT EXISTS idx_review_views_spec_item
                     ON review_views (spec_id, item_id);
 
+                CREATE TABLE IF NOT EXISTS review_hint_events (
+                    spec_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL DEFAULT '',
+                    item_id TEXT NOT NULL,
+                    level INTEGER NOT NULL,
+                    ts REAL NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_hint_session_item
+                    ON review_hint_events (session_id, item_id, spec_id);
+
+                CREATE TABLE IF NOT EXISTS review_reveals (
+                    reveal_id INTEGER PRIMARY KEY,
+                    event_id TEXT NOT NULL,
+                    spec_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    ts REAL NOT NULL,
+                    payload_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_reveal_event ON review_reveals (event_id);
+                CREATE INDEX IF NOT EXISTS idx_reveal_session ON review_reveals (session_id);
+
+                CREATE TABLE IF NOT EXISTS review_quality (
+                    spec_id TEXT PRIMARY KEY,
+                    content_hash TEXT NOT NULL,
+                    state TEXT NOT NULL CHECK (state IN ('legacy','draft','verified','rejected')),
+                    report_json TEXT NOT NULL,
+                    updated_at REAL NOT NULL,
+                    reviewed_by TEXT,
+                    reviewed_at REAL,
+                    review_note TEXT
+                );
+                CREATE TABLE IF NOT EXISTS review_quality_decisions (
+                    decision_id TEXT PRIMARY KEY,
+                    spec_id TEXT NOT NULL,
+                    decision TEXT NOT NULL CHECK (decision IN ('verify', 'reject', 'reset')),
+                    note TEXT,
+                    reviewer TEXT NOT NULL,
+                    ts REAL NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_quality_decisions_spec_ts
+                    ON review_quality_decisions (spec_id, ts);
+                CREATE TABLE IF NOT EXISTS review_anchors (
+                    spec_id TEXT NOT NULL,
+                    item_id TEXT NOT NULL,
+                    anchor_json TEXT NOT NULL,
+                    PRIMARY KEY (spec_id, item_id)
+                );
+                INSERT OR IGNORE INTO review_quality
+                    (spec_id, content_hash, state, report_json, updated_at)
+                    SELECT spec_id, content_hash, 'legacy', '{}', updated_at FROM review_specs;
+                CREATE TABLE IF NOT EXISTS review_revisions (
+                    spec_id TEXT NOT NULL,
+                    revision INTEGER NOT NULL,
+                    item_id TEXT NOT NULL,
+                    ts REAL NOT NULL,
+                    patch_json TEXT NOT NULL,
+                    PRIMARY KEY (spec_id, revision)
+                );
+
+                CREATE TABLE IF NOT EXISTS review_links (
+                    spec_id TEXT NOT NULL,
+                    concept_id TEXT NOT NULL,
+                    mastery_path_id TEXT NOT NULL,
+                    knowledge_point_id TEXT NOT NULL,
+                    source TEXT NOT NULL CHECK (source IN ('manual', 'auto')),
+                    confidence REAL NOT NULL CHECK (confidence BETWEEN 0 AND 1),
+                    updated_at REAL NOT NULL,
+                    PRIMARY KEY (spec_id, concept_id)
+                );
+                CREATE TABLE IF NOT EXISTS review_projection_queue (
+                    event_id TEXT PRIMARY KEY,
+                    spec_id TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK (status IN ('running', 'pending', 'applied', 'exhausted')),
+                    attempts INTEGER NOT NULL,
+                    last_error TEXT,
+                    updated_at REAL NOT NULL,
+                    mastery_path_id TEXT NOT NULL,
+                    knowledge_point_id TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_projection_queue_spec
+                    ON review_projection_queue (spec_id, status, updated_at);
+
+                CREATE TABLE IF NOT EXISTS review_artifacts (
+                    spec_id TEXT PRIMARY KEY REFERENCES review_specs (spec_id),
+                    chapter_fingerprint TEXT,
+                    fingerprint_basis TEXT NOT NULL,
+                    content_hash TEXT NOT NULL,
+                    generated_at REAL NOT NULL,
+                    updated_at REAL NOT NULL
+                );
+
                 CREATE TRIGGER IF NOT EXISTS review_events_no_update
                 BEFORE UPDATE ON review_events
                 BEGIN
@@ -468,6 +568,21 @@ class ReviewStore:
             # instead of only promised in the prompt.
             if "learner_quote" not in columns:
                 conn.execute("ALTER TABLE review_events ADD COLUMN learner_quote TEXT")
+            if "hints_issued" not in columns:
+                conn.execute(
+                    "ALTER TABLE review_events ADD COLUMN hints_issued INTEGER NOT NULL DEFAULT 0"
+                )
+            if "correct" not in columns:
+                conn.execute("ALTER TABLE review_events ADD COLUMN correct INTEGER")
+            if "grader_basis" not in columns:
+                conn.execute("ALTER TABLE review_events ADD COLUMN grader_basis TEXT")
+            quality_columns = {
+                str(row[1])
+                for row in conn.execute("PRAGMA table_info(review_quality)")
+            }
+            for column, column_type in (("reviewed_by", "TEXT"), ("reviewed_at", "REAL"), ("review_note", "TEXT")):
+                if column not in quality_columns:
+                    conn.execute(f"ALTER TABLE review_quality ADD COLUMN {column} {column_type}")
             conn.execute(
                 "INSERT OR IGNORE INTO review_schema_migrations (version, applied_at) VALUES (?, ?)",
                 (SCHEMA_VERSION, time.time()),
@@ -517,6 +632,10 @@ class ReviewStore:
         *,
         overwrite: bool = True,
         allow_history_rewrite: bool = False,
+        assessment: tuple[dict[str, Any], dict[str, Any]] | None = None,
+        allow_nonidentity_content_change: bool = False,
+        expected_hash: str | None = None,
+        revision: ItemRevision | None = None,
     ) -> tuple[ReviewSpec, bool]:
         """Store a spec. Returns ``(stored_spec, created)``.
 
@@ -532,21 +651,28 @@ class ReviewStore:
         history would otherwise point at a pack that no longer contains them.
         Sessions carry no such keys and do not block the rewrite.
         """
+        from deeptutor.review.artifacts import chapter_fingerprint
+
         stored = spec
         payload = canonical_json(stored)
+        fingerprint = chapter_fingerprint(stored)
+        basis = "raw_chapter" if fingerprint is not None else "unknown"
         # File and DB row form one logical record: serialise writers per
         # spec so an interleaved pair cannot leave the snapshot describing
         # one version while the authoritative row describes another. The
         # process-local lock covers one service process; ``BEGIN IMMEDIATE``
         # (taken before the snapshot write) extends that to every process
         # sharing the database, because SQLite's write lock is cross-process.
+        revision_number = 0
         with _spec_write_lock(self.home, stored.id):
             moment = time.time()
             with self._transaction() as conn:
                 row = conn.execute(
-                    "SELECT content_hash, created_at FROM review_specs WHERE spec_id = ?",
+                    "SELECT content_hash, created_at, spec_json FROM review_specs WHERE spec_id = ?",
                     (stored.id,),
                 ).fetchone()
+                if expected_hash is not None and (row is None or row["content_hash"] != expected_hash):
+                    raise VersionConflict("pack changed during item correction")
                 if row is not None and not overwrite:
                     # Checked before the snapshot write: a rejected spec must
                     # not leave a file that no row accounts for.
@@ -561,18 +687,10 @@ class ReviewStore:
                     # across a content rewrite. Only events and the state rows
                     # derived from them can be stranded.
                     if counts["events"] or counts["states"]:
-                        raise SpecHistoryConflict(stored.id, **counts)
-                # Write the human-readable snapshot before the authoritative
-                # DB row: if this fails, the transaction rolls back and the
-                # spec is simply not stored; never a DB row that claims a file
-                # exists when it does not. Do not leak the absolute path in
-                # the error message.
-                try:
-                    self._write_atomic(self._spec_file(stored.id), payload)
-                except OSError as exc:
-                    raise ReviewStoreIOError(
-                        "could not write the spec snapshot"
-                    ) from exc
+                        if not allow_nonidentity_content_change or self._identity(
+                            self.decode_spec(stored.id, row["spec_json"])
+                        ) != self._identity(stored):
+                            raise SpecHistoryConflict(stored.id, **counts)
                 created = row is None
                 if row is None:
                     conn.execute(
@@ -586,7 +704,255 @@ class ReviewStore:
                         "WHERE spec_id = ?",
                         (stored.content_hash, moment, payload, stored.id),
                     )
+                conn.execute(
+                    "INSERT INTO review_artifacts VALUES (?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(spec_id) DO UPDATE SET "
+                    "chapter_fingerprint = excluded.chapter_fingerprint, fingerprint_basis = excluded.fingerprint_basis, "
+                    "content_hash = excluded.content_hash, updated_at = excluded.updated_at",
+                    (stored.id, fingerprint, basis, stored.content_hash, moment, moment),
+                )
+                if assessment is not None and (created or stored.content_hash != row["content_hash"]):
+                    self._write_quality(conn, stored, *assessment)
+                if revision is not None:
+                    revision_number = conn.execute(
+                        "SELECT COALESCE(MAX(revision), 0) + 1 FROM review_revisions WHERE spec_id = ?",
+                        (stored.id,),
+                    ).fetchone()[0]
+                    conn.execute(
+                        "INSERT INTO review_revisions VALUES (?, ?, ?, ?, ?)",
+                        (stored.id, revision_number, revision.item_id, moment, canonical_json(revision.patch)),
+                    )
+                try:
+                    self._write_atomic(self._spec_file(stored.id), payload)
+                except OSError as exc:
+                    raise ReviewStoreIOError("could not write the spec snapshot") from exc
+        if revision is not None:
+            revision.number = revision_number
         return stored, created
+
+    @staticmethod
+    def _identity(spec: ReviewSpec) -> tuple[dict[str, Any], dict[str, Any]]:
+        return (
+            {item.id: (tuple(item.concept_ids), item.variant_of, item.kind) for item in spec.items},
+            {concept.id: (concept.key, tuple(concept.prerequisites)) for concept in spec.concepts},
+        )
+
+    def links_for_spec(self, spec_id: str) -> dict[str, dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT * FROM review_links WHERE spec_id = ?", (spec_id,)).fetchall()
+        return {row["concept_id"]: dict(row) for row in rows}
+
+    def change_link(
+        self, spec: ReviewSpec, concept_id: str, target: tuple[str, str] | None,
+        *, source: str = "manual", confidence: float = 1.0,
+    ) -> None:
+        spec.concept_by_id(concept_id)
+        with self._transaction() as conn:
+            row = conn.execute("SELECT content_hash FROM review_specs WHERE spec_id = ?", (spec.id,)).fetchone()
+            if row is None or row["content_hash"] != spec.content_hash:
+                raise VersionConflict("pack changed during link update")
+            if target is None:
+                conn.execute("DELETE FROM review_links WHERE spec_id = ? AND concept_id = ?", (spec.id, concept_id))
+            else:
+                conn.execute(
+                    "INSERT INTO review_links VALUES (?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(spec_id, concept_id) DO UPDATE SET mastery_path_id = excluded.mastery_path_id, "
+                    "knowledge_point_id = excluded.knowledge_point_id, source = excluded.source, "
+                    "confidence = excluded.confidence, updated_at = excluded.updated_at",
+                    (spec.id, concept_id, *target, source, confidence, time.time()),
+                )
+
+    def projection_job(self, event_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            return _row_dict(conn.execute(
+                "SELECT * FROM review_projection_queue WHERE event_id = ?", (event_id,)
+            ).fetchone())
+
+    def pending_projections(self, spec_id: str, *, limit: int) -> list[str]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT event.event_id FROM review_projection_queue AS queue "
+                "JOIN review_events AS event USING (event_id) WHERE queue.spec_id = ? "
+                "AND ((queue.status = 'pending' AND queue.attempts < ?) "
+                "OR (queue.status = 'running' AND queue.updated_at <= ?)) "
+                "ORDER BY event.ts, event.event_id LIMIT ?",
+                (spec_id, MAX_PROJECTION_RETRIES, time.time() - PROJECTION_LEASE_SECONDS, limit),
+            ).fetchall()
+        return [row["event_id"] for row in rows]
+
+    def claim_projection(
+        self, event: dict[str, Any], target: tuple[str, str] | None
+    ) -> tuple[str, int]:
+        moment = time.time()
+        event_id = event["event_id"]
+        with self._transaction() as conn:
+            row = conn.execute("SELECT * FROM review_projection_queue WHERE event_id = ?", (event_id,)).fetchone()
+            if row is None:
+                if target is None:
+                    return "unlinked", 0
+                conn.execute(
+                    "INSERT INTO review_projection_queue VALUES (?, ?, 'running', 0, NULL, ?, ?, ?)",
+                    (event_id, event["spec_id"], moment, *target),
+                )
+                return "claimed", 0
+            attempts = row["attempts"]
+            if row["status"] == "running" and row["updated_at"] > moment - PROJECTION_LEASE_SECONDS:
+                return "running", attempts
+            if target != (row["mastery_path_id"], row["knowledge_point_id"]):
+                if row["status"] in {"pending", "running"}:
+                    conn.execute(
+                        "UPDATE review_projection_queue SET status = 'exhausted', "
+                        "last_error = 'queued_link_changed', updated_at = ? WHERE event_id = ?",
+                        (moment, event_id),
+                    )
+                return "link_changed", attempts
+            if row["status"] == "applied":
+                return "applied", attempts
+            if attempts >= MAX_PROJECTION_RETRIES:
+                if row["status"] == "running":
+                    conn.execute(
+                        "UPDATE review_projection_queue SET status = 'exhausted', "
+                        "last_error = 'projection_retry_limit', updated_at = ? WHERE event_id = ?",
+                        (moment, event_id),
+                    )
+                return "exhausted", attempts
+            attempts += 1
+            conn.execute(
+                "UPDATE review_projection_queue SET status = 'running', attempts = ?, updated_at = ? WHERE event_id = ?",
+                (attempts, moment, event_id),
+            )
+            return "claimed", attempts
+
+    def finish_projection(self, event_id: str, attempts: int, *, error: str | None) -> None:
+        status = "applied" if error is None else (
+            "exhausted" if attempts >= MAX_PROJECTION_RETRIES else "pending"
+        )
+        with self._transaction() as conn:
+            conn.execute(
+                "UPDATE review_projection_queue SET status = ?, last_error = ?, updated_at = ? "
+                "WHERE event_id = ? AND attempts = ? AND status = 'running'",
+                (status, error, time.time(), event_id, attempts),
+            )
+
+    def quality_record(self, spec_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM review_quality WHERE spec_id = ?",
+                (spec_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            **json.loads(row["report_json"]),
+            "state": row["state"],
+            "content_hash": row["content_hash"],
+            "reviewed_by": row["reviewed_by"],
+            "reviewed_at": row["reviewed_at"],
+            "review_note": row["review_note"],
+        }
+
+    def anchors_for_spec(self, spec_id: str, content_hash: str) -> dict[str, Any]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT item_id, anchor_json FROM review_anchors JOIN review_quality USING (spec_id) "
+                "WHERE spec_id = ? AND content_hash = ?", (spec_id, content_hash),
+            ).fetchall()
+        return {row["item_id"]: json.loads(row["anchor_json"]) for row in rows}
+
+    def save_quality(self, spec: ReviewSpec, report: dict[str, Any], anchors: dict[str, Any]) -> None:
+        with self._transaction() as conn:
+            row = conn.execute("SELECT content_hash FROM review_specs WHERE spec_id = ?", (spec.id,)).fetchone()
+            if row is None or row["content_hash"] != spec.content_hash:
+                raise VersionConflict("pack changed during quality evaluation")
+            self._write_quality(conn, spec, report, anchors)
+
+    def decide_quality(
+        self,
+        spec: ReviewSpec,
+        *,
+        decision: str,
+        note: str | None,
+        reviewer: str,
+    ) -> dict[str, Any]:
+        if decision not in {"verify", "reject", "reset"}:
+            raise ValueError("decision must be verify, reject, or reset")
+        now = time.time()
+        with self._transaction() as conn:
+            spec_row = conn.execute(
+                "SELECT content_hash FROM review_specs WHERE spec_id = ?",
+                (spec.id,),
+            ).fetchone()
+            if spec_row is None:
+                raise SpecNotFound(spec.id)
+            if spec_row["content_hash"] != spec.content_hash:
+                raise VersionConflict("pack changed during quality decision")
+            quality_row = conn.execute(
+                "SELECT state, report_json FROM review_quality WHERE spec_id = ?",
+                (spec.id,),
+            ).fetchone()
+            report = json.loads(quality_row["report_json"]) if quality_row else {}
+            assessed_state = report.get("assessed_state")
+            if assessed_state not in {"legacy", "draft", "verified", "rejected"}:
+                assessed_state = report.get("state") if report.get("support") is not None else "legacy"
+            if decision == "verify":
+                state = "verified"
+            elif decision == "reject":
+                state = "rejected"
+            else:
+                state = assessed_state
+            decision_id = str(uuid.uuid4())
+            conn.execute(
+                "INSERT INTO review_quality_decisions (decision_id, spec_id, decision, note, reviewer, ts) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (decision_id, spec.id, decision, note, reviewer, now),
+            )
+            if quality_row is None:
+                conn.execute(
+                    "INSERT INTO review_quality (spec_id, content_hash, state, report_json, updated_at, reviewed_by, reviewed_at, review_note) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (spec.id, spec.content_hash, state, canonical_json({"assessed_state": "legacy"}), now,
+                     None if decision == "reset" else reviewer, None if decision == "reset" else now,
+                     None if decision == "reset" else note),
+                )
+            else:
+                conn.execute(
+                    "UPDATE review_quality SET state = ?, updated_at = ?, reviewed_by = ?, reviewed_at = ?, review_note = ? "
+                    "WHERE spec_id = ?",
+                    (state, now, None if decision == "reset" else reviewer,
+                     None if decision == "reset" else now, None if decision == "reset" else note, spec.id),
+                )
+        result = self.quality_record(spec.id) or {"state": state, "content_hash": spec.content_hash}
+        result["decision_id"] = decision_id
+        result["decision"] = decision
+        return result
+
+    @staticmethod
+    def _write_quality(conn: sqlite3.Connection, spec: ReviewSpec, report: dict[str, Any], anchors: dict[str, Any]) -> None:
+        report_to_save = dict(report)
+        report_to_save.setdefault("assessed_state", report["state"])
+        existing = conn.execute(
+            "SELECT content_hash, reviewed_by, reviewed_at, review_note, state FROM review_quality WHERE spec_id = ?",
+            (spec.id,),
+        ).fetchone()
+        keep_review = existing is not None and existing["content_hash"] == spec.content_hash and bool(existing["reviewed_by"])
+        state = existing["state"] if keep_review else report_to_save["state"]
+        reviewed_by = existing["reviewed_by"] if keep_review else None
+        reviewed_at = existing["reviewed_at"] if keep_review else None
+        review_note = existing["review_note"] if keep_review else None
+        conn.execute(
+            "INSERT INTO review_quality (spec_id, content_hash, state, report_json, updated_at, reviewed_by, reviewed_at, review_note) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(spec_id) DO UPDATE SET content_hash=excluded.content_hash, state=excluded.state, "
+            "report_json=excluded.report_json, updated_at=excluded.updated_at, reviewed_by=excluded.reviewed_by, "
+            "reviewed_at=excluded.reviewed_at, review_note=excluded.review_note",
+            (spec.id, spec.content_hash, state, canonical_json(report_to_save), time.time(),
+             reviewed_by, reviewed_at, review_note),
+        )
+        conn.execute("DELETE FROM review_anchors WHERE spec_id = ?", (spec.id,))
+        conn.executemany(
+            "INSERT INTO review_anchors VALUES (?, ?, ?)",
+            [(spec.id, item_id, canonical_json(anchor)) for item_id, anchor in anchors.items()],
+        )
 
     def history_counts(self, spec_id: str) -> dict[str, int]:
         """Rows that reference this spec: events, materialized states, sessions."""
@@ -627,6 +993,19 @@ class ReviewStore:
     def spec_rows(self) -> Iterator[Iterator[sqlite3.Row]]:
         with self._read_connection() as conn:
             yield iter(conn.execute("SELECT spec_id, spec_json FROM review_specs ORDER BY spec_id"))
+
+    @contextmanager
+    def artifact_rows(self, spec_id: str | None) -> Iterator[Iterator[sqlite3.Row]]:
+        query = (
+            "SELECT spec.spec_id, spec.spec_json, spec.content_hash, artifact.chapter_fingerprint "
+            "FROM review_specs AS spec LEFT JOIN review_artifacts AS artifact "
+            "ON artifact.spec_id = spec.spec_id AND artifact.content_hash = spec.content_hash"
+        )
+        with self._read_connection() as conn:
+            if spec_id is not None:
+                yield iter(conn.execute(query + " WHERE spec.spec_id = ?", (spec_id,)))
+            else:
+                yield iter(conn.execute(query + " ORDER BY spec.spec_id"))
 
     def spec_meta(self, spec_id: str) -> dict[str, Any]:
         with self._connect() as conn:
@@ -799,6 +1178,67 @@ class ReviewStore:
                 [(spec_id, session_id, item_id, now) for item_id in unique],
             )
 
+    def item_was_shown(self, spec_id: str, session_id: str, item_id: str) -> bool:
+        if not session_id:
+            return False
+        with self._connect() as conn:
+            return conn.execute(
+                "SELECT 1 FROM review_views WHERE spec_id = ? AND session_id = ? AND item_id = ?",
+                (spec_id, session_id, item_id),
+            ).fetchone() is not None
+
+    def event_by_id(self, spec_id: str, event_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            return _row_dict(conn.execute(
+                "SELECT * FROM review_events WHERE spec_id = ? AND event_id = ?",
+                (spec_id, event_id),
+            ).fetchone())
+
+    def record_reveal(
+        self, event: dict[str, Any], payload: dict[str, Any], *, limit: int
+    ) -> dict[str, Any] | None:
+        with self._transaction() as conn:
+            count = conn.execute(
+                "SELECT count(*) FROM review_reveals WHERE session_id = ?",
+                (event["session_id"],),
+            ).fetchone()[0]
+            if count >= limit:
+                return None
+            previous = conn.execute(
+                "SELECT payload_json FROM review_reveals WHERE event_id = ? ORDER BY reveal_id LIMIT 1",
+                (event["event_id"],),
+            ).fetchone()
+            snapshot = previous[0] if previous is not None else canonical_json(payload)
+            conn.execute(
+                "INSERT INTO review_reveals (event_id, spec_id, session_id, ts, payload_json) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (event["event_id"], event["spec_id"], event["session_id"], time.time(), snapshot),
+            )
+            return json.loads(snapshot)
+
+    def record_hint(self, spec_id: str, session_id: str, item_id: str, level: int) -> None:
+        with self._transaction() as conn:
+            if session_id and conn.execute(
+                "SELECT 1 FROM review_sessions WHERE session_id = ? AND spec_id = ?",
+                (session_id, spec_id),
+            ).fetchone() is None:
+                raise SessionConflict("hint session does not belong to this pack")
+            conn.execute(
+                "INSERT INTO review_hint_events (spec_id, session_id, item_id, level, ts) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (spec_id, session_id, item_id, level, time.time()),
+            )
+
+    def hint_count(self, spec_id: str, session_id: str, item_id: str) -> int:
+        if not session_id:
+            return 0
+        with self._connect() as conn:
+            return int(conn.execute(
+                "SELECT COUNT(*) FROM review_hint_events "
+                "WHERE spec_id = ? AND session_id = ? AND item_id = ?",
+                (spec_id, session_id, item_id),
+            ).fetchone()[0])
+
     def event_count(self, spec_id: str) -> int:
         with self._connect() as conn:
             row = conn.execute(
@@ -823,6 +1263,9 @@ class ReviewStore:
         app_version: str,
         transition: TransitionFn,
         hints_used: int = 0,
+        hints_issued: int = 0,
+        correct: bool | None = None,
+        grader_basis: str | None = None,
         confidence: float | None = None,
         learner_quote: str | None = None,
     ) -> tuple[dict[str, Any], bool]:
@@ -880,8 +1323,8 @@ class ReviewStore:
                 "event_id, submission_id, spec_id, item_id, concept_key, session_id, ts, "
                 "rating, result, quality, elapsed_ms, scheduled_interval_days, "
                 "predicted_retrievability, source, app_version, schema_version, payload_hash, "
-                "hints_used, confidence, learner_quote"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "hints_used, confidence, learner_quote, hints_issued, correct, grader_basis"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     event_id,
                     submission_id,
@@ -903,6 +1346,9 @@ class ReviewStore:
                     max(0, int(hints_used)),
                     confidence,
                     learner_quote,
+                    hints_issued,
+                    correct,
+                    grader_basis,
                 ),
             )
 
@@ -938,7 +1384,7 @@ class ReviewStore:
 
     # -- sessions -----------------------------------------------------------
     def latest_open_session(
-        self, spec_id: str, *, now: float | None = None
+        self, spec_id: str, *, now: float | None = None, read_only: bool = False
     ) -> dict[str, Any] | None:
         """The most recent unfinished session for a spec, if any.
 
@@ -953,6 +1399,13 @@ class ReviewStore:
         """
         moment = time.time() if now is None else now
         cutoff = moment - MAX_OPEN_SESSION_SECONDS
+        if read_only or self.read_only:
+            with self._connect() as conn:
+                return _row_dict(conn.execute(
+                    "SELECT * FROM review_sessions WHERE spec_id = ? AND ended_at IS NULL "
+                    "AND started_at >= ? ORDER BY started_at DESC, rowid DESC LIMIT 1",
+                    (spec_id, cutoff),
+                ).fetchone())
         with self._transaction() as conn:
             conn.execute(
                 "UPDATE review_sessions SET ended_at = started_at + ? "

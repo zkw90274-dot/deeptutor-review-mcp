@@ -197,7 +197,7 @@ def test_css_and_js_budgets_still_hold() -> None:
     # P2 study aids + P5 table/code blocks + the per-item answer toggle +
     # the explanation paragraph/list splitter + the emphasis pass; keep the
     # page's JS under 56 KB.
-    assert len(scripts[0].encode("utf-8")) <= 56_000
+    assert len(scripts[0].encode("utf-8")) <= 56_500
 
 
 def test_plot_adds_no_external_resource() -> None:

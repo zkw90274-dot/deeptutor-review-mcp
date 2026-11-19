@@ -29,6 +29,7 @@ from deeptutor.review.agent_tools import (
     ReviewDueTool,
     ReviewExportLinkTool,
     ReviewGenerateTool,
+    ReviewHintTool,
     ReviewPlanTool,
     ReviewSpecsTool,
     ReviewTodayTool,
@@ -36,6 +37,7 @@ from deeptutor.review.agent_tools import (
 )
 from deeptutor.review.fixture import SPEC_ID, build_fixture_spec
 from deeptutor.review.service import ReviewService
+from deeptutor.review.mcp_server import TOOL_CLASSES
 
 TOOLS: dict[str, type[BaseTool]] = {
     "review_specs": ReviewSpecsTool,
@@ -70,6 +72,44 @@ def seeded(service: ReviewService) -> ReviewService:
     return service
 
 
+def test_hint_ledger_downgrades_good(seeded: ReviewService) -> None:
+    today = _payload(_run(ReviewTodayTool(), spec_id=SPEC_ID, include_draft=True), tool="review_today")
+    args = dict(spec_id=SPEC_ID, session_id=today["session_id"], item_id=today["items"][0]["item_id"])
+    _run(ReviewHintTool(), **args, level=1)
+    _run(ReviewHintTool(), **args, level=2)
+    attempt = dict(**args, rating="good", hints_used=0, submission_id="hint-ledger")
+    result = _payload(_run(ReviewAttemptTool(), **attempt), tool="review_attempt")
+    assert result["rating"] == "hard"
+    assert result["hints_used"] == 2
+    assert seeded.store.event_by_submission("hint-ledger")["hints_issued"] == 2
+    _run(ReviewHintTool(), **args, level=2)
+    replay = _payload(_run(ReviewAttemptTool(), **attempt), tool="review_attempt")
+    assert replay["event_id"] == result["event_id"]
+    assert replay["created"] is False
+
+
+def test_mcp_attempt_requires_shown_item(seeded: ReviewService, fixture_spec) -> None:
+    result = _payload(_run(ReviewAttemptTool(), spec_id=SPEC_ID, item_id=fixture_spec.items[0].id, rating="again"), tool="review_attempt")
+    assert result["error"] == "item_not_shown"
+    assert seeded.store.event_count(SPEC_ID) == 0
+
+
+def test_mcp_attempt_hides_answer_until_reveal(seeded: ReviewService, monkeypatch) -> None:
+    monkeypatch.setenv("DEEPTUTOR_REVIEW_MAX_REVEALS_PER_SESSION", "2")
+    today = _payload(_run(ReviewTodayTool(), spec_id=SPEC_ID, include_draft=True), tool="review_today")
+    result = _payload(_run(ReviewAttemptTool(), spec_id=SPEC_ID, item_id=today["items"][0]["item_id"], session_id=today["session_id"], rating="again"), tool="review_attempt")
+    assert result["event_id"] == result["reveal_token"]
+    assert not {"answer", "explanation", "correction", "study_aids"}.intersection(result)
+    reveal = TOOL_CLASSES["review_reveal"]()
+    args = dict(spec_id=SPEC_ID, event_id=result["event_id"])
+    first = _payload(_run(reveal, **args), tool="review_reveal")
+    second = _payload(_run(reveal, **args), tool="review_reveal")
+    assert first == second and first["answer"] and first["correction"]
+    blocked = _payload(_run(reveal, **args), tool="review_reveal")
+    assert blocked["error"] == "reveal_limit"
+    assert "answer" not in blocked
+
+
 # -- shared contract --------------------------------------------------------
 
 
@@ -86,6 +126,15 @@ def test_all_tools_are_base_tools_with_frozen_names() -> None:
         "review_generate",
         "review_hint",
         "review_plan",
+        "review_reveal",
+        "review_quality",
+        "review_quality_decision",
+        "review_correct",
+        "review_metrics",
+        "review_session",
+        "review_link",
+        "review_session_plan",
+        "review_artifact_status",
     )
     for name, tool_type in TOOLS.items():
         tool = tool_type()
@@ -114,6 +163,8 @@ def test_spec_id_parameter_is_required_on_the_four_addressed_tools() -> None:
         "hints_used",
         "confidence",
         "learner_quote",
+        "answer",
+        "elapsed_ms",
     }
     assert by_name["rating"].enum == ["again", "hard", "good"]
     assert by_name["submission_id"].required is False
@@ -622,6 +673,7 @@ def test_generate_tool_definition_is_english_and_bounded() -> None:
         "question_types",
         "difficulty",
         "job_id",
+        "wait_seconds",
         "replace",
     ]
     assert by_name["kb"].required is True
@@ -636,6 +688,9 @@ def test_generate_tool_definition_is_english_and_bounded() -> None:
     }
     assert by_name["difficulty"].required is False
     assert by_name["job_id"].required is False
+    assert by_name["wait_seconds"].required is False
+    assert by_name["wait_seconds"].default == by_name["wait_seconds"].minimum == 0
+    assert by_name["wait_seconds"].maximum == 60
     assert by_name["replace"].type == "boolean"
     assert by_name["replace"].required is False
     assert by_name["replace"].default is False

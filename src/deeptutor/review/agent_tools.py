@@ -30,8 +30,8 @@ Two properties keep them safe to mount permanently:
 learner spoke aloud (``again`` / ``hard`` / ``good``). The scheduler that plans
 the learner's future reviews is driven by that rating, so a rating the model
 invented would corrupt the only record of what the learner actually
-remembers. The description states this in the terms the model reads, and the
-tool takes no answer argument it could use to compute a rating.
+remembers. The optional learner answer is checked separately and does not
+drive scheduling.
 
 **No answer leaks before the learner answers.** ``review_today`` deliberately
 strips the answer and explanation from each item; they only appear once an
@@ -48,6 +48,7 @@ fault (a broken store, an unexpected exception) returns ``success=False``.
 from __future__ import annotations
 
 import asyncio
+import getpass
 import json
 import logging
 import math
@@ -65,17 +66,19 @@ from deeptutor.core.tool_protocol import (
     ToolParameter,
     ToolResult,
 )
-from deeptutor.review import capabilities, export_tree, materials, plan_service
+from deeptutor.review import capabilities, export_tree, materials, plan_service, projection
 from deeptutor.review.adapter import RATING_MAP
+from deeptutor.review.core_state import effective_link
 from deeptutor.review.projection import project_attempt
 from deeptutor.review.qa import run_gates
-from deeptutor.review.service import AttemptInput, ReviewService
+from deeptutor.review.service import MAX_ELAPSED_MS, AttemptInput, QualityGateFailed, ReviewService, answer_feedback
 from deeptutor.review.storage import (
     ReadOnlyStoreUnavailable,
     ReviewStore,
     SessionConflict,
     SpecNotFound,
     SubmissionConflict,
+    VersionConflict,
     review_home,
 )
 
@@ -139,6 +142,15 @@ REVIEW_AGENT_TOOL_NAMES: tuple[str, ...] = (
     "review_generate",
     "review_hint",
     "review_plan",
+    "review_reveal",
+    "review_quality",
+    "review_quality_decision",
+    "review_correct",
+    "review_metrics",
+    "review_session",
+    "review_link",
+    "review_session_plan",
+    "review_artifact_status",
 )
 
 #: Generation bounds. The schema advertises them and ``execute`` clamps to the
@@ -365,6 +377,11 @@ class ReviewSpecsTool(BaseTool):
                     "concepts": int(counts.get("concepts") or 0),
                     "qa_passed": bool(quality.get("passed")),
                     "qa_warnings": len(quality.get("warnings") or []),
+                    "quality_state": detail["quality_state"],
+                    "anchored_items": detail["anchored_items"],
+                    "quality_warning": detail["quality_warning"],
+                    "linked_concepts": detail["linked_concepts"],
+                    "total_concepts": detail["total_concepts"],
                     "updated_at": detail.get("updated_at"),
                 }
                 if detail.get("warning"):
@@ -426,6 +443,7 @@ class ReviewDueTool(BaseTool):
                     ),
                 ),
                 *_page_parameters(),
+                ToolParameter(name="include_draft", type="boolean", required=False, default=False, description="Include draft packs explicitly."),
             ],
         )
 
@@ -439,7 +457,8 @@ class ReviewDueTool(BaseTool):
         try:
             service = await asyncio.to_thread(_service)
             overview = await asyncio.to_thread(
-                service.due_overview, subject=subject or None, limit=limit, offset=offset
+                service.due_overview, subject=subject or None, limit=limit, offset=offset,
+                include_draft=kwargs.get("include_draft") is True,
             )
         except Exception as exc:  # noqa: BLE001
             return _internal_failure(tool, exc)
@@ -451,6 +470,7 @@ class ReviewDueTool(BaseTool):
                     "spec_id": _text(row.get("spec_id")),
                     "title": _clip(row.get("title")),
                     "subject": _clip(row.get("subject")),
+                    "quality_warning": row.get("quality_warning"),
                     "queued": int(row.get("queued") or 0),
                     "due": int(row.get("due") or 0),
                     "new": int(row.get("new") or 0),
@@ -526,7 +546,8 @@ class ReviewTodayTool(BaseTool):
                     name="spec_id",
                     type="string",
                     description="Pack id from review_specs (verbatim).",
-                )
+                ),
+                ToolParameter(name="include_draft", type="boolean", required=False, default=False, description="Allow study from this draft pack explicitly."),
             ],
         )
 
@@ -545,7 +566,8 @@ class ReviewTodayTool(BaseTool):
 
         try:
             today = await asyncio.to_thread(
-                service.today, spec.id, read_only=capabilities.current().read_only
+                service.today, spec.id, read_only=capabilities.current().read_only,
+                include_draft=kwargs.get("include_draft") is True,
             )
         except Exception as exc:  # noqa: BLE001
             return _internal_failure(tool, exc)
@@ -598,6 +620,10 @@ class ReviewTodayTool(BaseTool):
                 "items or claim a backlog you were not given."
             )
 
+        if today.get("quality_warning"):
+            instruction = "Tell the learner the quality_warning before continuing. " + instruction
+            if today.get("empty_message"):
+                instruction = "Tell the learner the quality_warning and use review_quality for details."
         return _result(
             {
                 "spec_id": spec.id,
@@ -612,10 +638,377 @@ class ReviewTodayTool(BaseTool):
                 "exam": today.get("exam"),
                 "items": items,
                 "empty_message": today.get("empty_message"),
+                "quality_warning": today.get("quality_warning"),
                 "instruction": instruction,
             },
             tool=tool,
         )
+
+
+class ReviewQualityTool(BaseTool):
+    def get_definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="review_quality",
+            description="Inspect source support, generation gates, duplicates and potential answer leakage for a pack.",
+            parameters=[
+                ToolParameter(name="spec_id", type="string", description="Pack id from review_specs."),
+                ToolParameter(name="refresh", type="boolean", required=False, default=False, description="Reassess the source material and persist the new quality state."),
+            ],
+        )
+
+    async def execute(self, **kwargs: Any) -> ToolResult:
+        tool = "review_quality"
+        refresh = kwargs.get("refresh") is True
+        if refresh and capabilities.current().read_only:
+            return _soft(tool=tool, error="read_only", instruction="Omit refresh to inspect saved quality.")
+        service, spec, error = await _service_and_spec(
+            tool=tool, spec_id=kwargs.get("spec_id"), missing_instruction="Find the pack with review_specs.",
+        )
+        if error is not None or service is None or spec is None:
+            return error or _failure("Could not resolve the pack.")
+        try:
+            report = await asyncio.to_thread(service.quality, spec.id, refresh=refresh)
+        except Exception as exc:
+            return _internal_failure(tool, exc)
+        return _result({**report, "instruction": "Report the quality state and support levels. Text matching does not verify factual correctness."}, tool=tool)
+
+
+class ReviewQualityDecisionTool(BaseTool):
+    def get_definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="review_quality_decision",
+            description=(
+                "Record a human quality decision for one review pack. Verify makes it schedulable, "
+                "reject removes it from scheduling and export, and reset restores its saved assessment state. "
+                "Each call appends an audit-history entry."
+            ),
+            parameters=[
+                ToolParameter(name="spec_id", type="string", description="Pack id from review_specs."),
+                ToolParameter(
+                    name="decision", type="string",
+                    description="Human decision: verify, reject, or reset.",
+                    enum=["verify", "reject", "reset"],
+                ),
+                ToolParameter(name="note", type="string", required=False, description="Optional review note, up to 2000 characters."),
+            ],
+        )
+
+    async def execute(self, **kwargs: Any) -> ToolResult:
+        tool = "review_quality_decision"
+        if capabilities.current().read_only:
+            return _soft(tool=tool, error="read_only", instruction="Quality decisions require a writable review store.")
+        decision = kwargs.get("decision")
+        if decision not in {"verify", "reject", "reset"}:
+            return _soft(tool=tool, error="invalid_decision", instruction="Use verify, reject, or reset.")
+        note = kwargs.get("note")
+        if note is not None and (not isinstance(note, str) or len(note) > 2000):
+            return _soft(tool=tool, error="invalid_note", instruction="Omit note or keep it within 2000 characters.")
+        service, spec, error = await _service_and_spec(
+            tool=tool,
+            spec_id=kwargs.get("spec_id"),
+            missing_instruction="Find the pack with review_specs.",
+        )
+        if error is not None or service is None or spec is None:
+            return error or _failure("Could not resolve the pack.")
+        try:
+            result = await asyncio.to_thread(
+                service.quality_decision,
+                spec.id,
+                decision=decision,
+                note=note,
+                reviewer=getpass.getuser(),
+            )
+        except Exception as exc:
+            return _internal_failure(tool, exc)
+        return _result(
+            {**result, "instruction": "Report the saved human decision and its effective quality state."},
+            tool=tool,
+        )
+
+
+class ReviewCorrectTool(BaseTool):
+    def get_definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="review_correct",
+            description="Correct one item's content after reviewing the proposed changes. Preserves item identity and review history.",
+            parameters=[
+                ToolParameter(name="spec_id", type="string", description="Pack id from review_specs."),
+                ToolParameter(name="item_id", type="string", description="Existing item id."),
+                ToolParameter(name="patch", type="object", description="Fields to replace: stem, options, answer, explanation, difficulty, source_ids."),
+            ],
+        )
+
+    async def execute(self, **kwargs: Any) -> ToolResult:
+        tool = "review_correct"
+        if blocked := capabilities.disabled(tool):
+            return _soft(tool=tool, error=f"{tool} is disabled", instruction=blocked)
+        service, spec, error = await _service_and_spec(
+            tool=tool, spec_id=kwargs.get("spec_id"), missing_instruction="Find the pack with review_specs.",
+        )
+        if error is not None or service is None or spec is None:
+            return error or _failure("Could not resolve the pack.")
+        try:
+            result = await asyncio.to_thread(service.correct_item, spec.id, _text(kwargs.get("item_id")), kwargs.get("patch"))
+        except QualityGateFailed as exc:
+            return _result({"error": "quality_gate_failed", "quality": exc.report.model_dump(mode="json"), "instruction": "Revise the patch using the gate report."}, tool=tool)
+        except (ValueError, KeyError, VersionConflict) as exc:
+            return _soft(tool=tool, error="invalid_or_stale_patch", instruction=_clip(str(exc)))
+        except Exception as exc:
+            return _internal_failure(tool, exc)
+        return _result({**result, "instruction": "Report the revision and its quality state. The existing review history is preserved."}, tool=tool)
+
+
+def _read_service() -> ReviewService:
+    return ReviewService(ReviewStore(read_only=True))
+
+
+class ReviewMetricsTool(BaseTool):
+    def get_definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="review_metrics",
+            description="Read one pack's retention, session completion, self-rating calibration and objective accuracy.",
+            parameters=[
+                ToolParameter(name="spec_id", type="string", description="Pack id from review_specs."),
+                ToolParameter(name="days", type="integer", required=False, default=30, minimum=1, maximum=365, description="Lookback in days (default 30)."),
+            ],
+        )
+
+    async def execute(self, **kwargs: Any) -> ToolResult:
+        tool = "review_metrics"
+        days = kwargs.get("days", 30)
+        if type(days) is not int or not 1 <= days <= 365:
+            return _soft(tool=tool, error="invalid_days", instruction="Pass an integer from 1 to 365.")
+        try:
+            service = await asyncio.to_thread(_read_service)
+            result = await asyncio.to_thread(service.metrics, _text(kwargs.get("spec_id")), days=days)
+        except (SpecNotFound, ReadOnlyStoreUnavailable):
+            return _soft(tool=tool, error="metrics_unavailable", instruction="Check the pack id and review home.")
+        except Exception as exc:
+            return _internal_failure(tool, exc)
+        return _result({**result, "instruction": "Report objective accuracy alongside its judged count and the separately measured self-rating calibration."}, tool=tool)
+
+
+class ReviewSessionTool(BaseTool):
+    def get_definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="review_session",
+            description="Read the active session and its counts, or end a session after the learner finishes. Status is read-only.",
+            parameters=[
+                ToolParameter(name="action", type="string", enum=["status", "end"], description="Read status or end the session."),
+                ToolParameter(name="spec_id", type="string", description="Pack id from review_today."),
+                ToolParameter(name="session_id", type="string", required=False, description="Session id from review_today, required for end."),
+            ],
+        )
+
+    async def execute(self, **kwargs: Any) -> ToolResult:
+        tool = "review_session"
+        action, spec_id, session_id = (_text(kwargs.get(name)) for name in ("action", "spec_id", "session_id"))
+        if action not in {"status", "end"} or (action == "end" and not session_id):
+            return _soft(tool=tool, error="invalid_session_action", instruction="Use status, or end with a session_id from review_today.")
+        if action == "end" and not capabilities.current().attempts:
+            return _soft(tool=tool, error="session_write_disabled", instruction="Use status to inspect this session.")
+        try:
+            service = await asyncio.to_thread(_read_service if action == "status" else _service)
+            result = await asyncio.to_thread(self._session, service, action, spec_id, session_id)
+        except (SpecNotFound, ReadOnlyStoreUnavailable):
+            return _soft(tool=tool, error="session_unavailable", instruction="Check the pack id and review home.")
+        except Exception as exc:
+            return _internal_failure(tool, exc)
+        return _result(result, tool=tool)
+
+    @staticmethod
+    def _session(service: ReviewService, action: str, spec_id: str, session_id: str) -> dict[str, Any]:
+        service.store.get_spec(spec_id)
+        if session_id:
+            session = service.store.get_session(session_id)
+        else:
+            session = service.store.latest_open_session(spec_id, read_only=True)
+        if session is None or session["spec_id"] != spec_id:
+            return {"error": "session_not_found", "instruction": "Use a session id from review_today for this pack."}
+        if action == "end":
+            if session["ended_at"] is not None:
+                return {"error": "session_already_ended", "instruction": "This session has already ended."}
+            return {**service.complete(spec_id, session_id), "instruction": "Summarize the completed session for the learner."}
+        events = service.store.events_for_session(session["session_id"])
+        return {
+            "session": session, "attempts": len(events),
+            "answered_items": len({event["item_id"] for event in events}),
+            "instruction": "Report the session status without recording a rating.",
+        }
+
+
+class ReviewSessionPlanTool(BaseTool):
+    def get_definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="review_session_plan",
+            description="Preview a read-only, cross-pack review queue under one time and item budget. Use review_today to start each chosen pack before recording ratings.",
+            parameters=[
+                ToolParameter(name="spec_ids", type="array", required=False, items={"type": "string"}, description="Eligible pack ids to include. Omit for all packs."),
+                ToolParameter(name="daily_minutes", type="integer", required=False, default=60, minimum=1, maximum=240, description="Shared time budget in minutes. Default 60."),
+                ToolParameter(name="limit", type="integer", required=False, default=12, minimum=1, maximum=12, description="Maximum item count. Default 12."),
+                ToolParameter(name="include_draft", type="boolean", required=False, default=False, description="Include draft packs explicitly."),
+            ],
+        )
+
+    async def execute(self, **kwargs: Any) -> ToolResult:
+        from deeptutor.review.mixed_queue import plan_mixed_queue
+
+        tool = "review_session_plan"
+        spec_ids = kwargs.get("spec_ids")
+        minutes = kwargs.get("daily_minutes", 60)
+        limit = kwargs.get("limit", 12)
+        include_draft = kwargs.get("include_draft", False)
+        if spec_ids is not None and (
+            not isinstance(spec_ids, list) or any(not isinstance(value, str) or not value.strip() for value in spec_ids)
+        ):
+            return _soft(tool=tool, error="invalid_spec_ids", instruction="Pass a list of pack ids from review_specs.")
+        if type(minutes) is not int or not 1 <= minutes <= 240:
+            return _soft(tool=tool, error="invalid_daily_minutes", instruction="Pass an integer from 1 to 240 minutes.")
+        if type(limit) is not int or not 1 <= limit <= 12:
+            return _soft(tool=tool, error="invalid_limit", instruction="Pass an integer from 1 to 12 items.")
+        if type(include_draft) is not bool:
+            return _soft(tool=tool, error="invalid_include_draft", instruction="Pass true or false for include_draft.")
+        try:
+            service = await asyncio.to_thread(_read_service)
+            result = await asyncio.to_thread(
+                plan_mixed_queue, service,
+                spec_ids={value.strip() for value in spec_ids} if spec_ids is not None else None,
+                daily_minutes=minutes, limit=limit, include_draft=include_draft,
+            )
+        except ReadOnlyStoreUnavailable:
+            return _soft(tool=tool, error="review_store_unavailable", instruction="Use an existing review home initialized for this version.")
+        except Exception as exc:
+            return _internal_failure(tool, exc)
+        return _result({
+            **result,
+            "instruction": (
+                "Summarize the budget and report any selected pack's quality warning. "
+                "Start the chosen pack with review_today and use its current session_id and item ids for attempts. "
+                "Use include_draft=true on review_today if the learner approved a draft. Refresh this preview if the queue changes."
+            ),
+        }, tool=tool)
+
+
+class ReviewArtifactStatusTool(BaseTool):
+    def get_definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="review_artifact_status",
+            description="Compare stored pack chapter fingerprints with an optional living-book manifest without writing anything.",
+            parameters=[
+                ToolParameter(name="spec_id", type="string", required=False, description="Exact pack id from review_specs."),
+                ToolParameter(name="subject", type="string", required=False, description="Exact subject label from the pack title."),
+            ],
+        )
+
+    async def execute(self, **kwargs: Any) -> ToolResult:
+        from deeptutor.review.artifacts import artifact_status
+
+        tool = "review_artifact_status"
+        spec_id = kwargs.get("spec_id")
+        subject = kwargs.get("subject")
+        if "spec_id" in kwargs and (
+            not isinstance(spec_id, str)
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", spec_id)
+            or spec_id.endswith(".")
+        ):
+            return _soft(tool=tool, error="invalid_spec_id", instruction="Use a pack id from review_specs.")
+        if "subject" in kwargs and (not isinstance(subject, str) or not subject.strip()):
+            return _soft(tool=tool, error="invalid_subject", instruction="Use a non-empty subject name.")
+        try:
+            service = await asyncio.to_thread(_read_service)
+            result = await asyncio.to_thread(
+                artifact_status, service.store, spec_id=spec_id, subject=subject.strip() if subject else None,
+            )
+        except ReadOnlyStoreUnavailable:
+            return _soft(tool=tool, error="review_store_unavailable", instruction="Use an existing review home initialized for this version.")
+        except Exception as exc:
+            return _internal_failure(tool, exc)
+        return _result({**result, "instruction": "Report each pack's status and reason. This check makes no repairs."}, tool=tool)
+
+
+class ReviewLinkTool(BaseTool):
+    def get_definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="review_link",
+            description=(
+                "List effective Mastery links, bind a concept to an existing knowledge point, "
+                "remove its override, or retry failed projections for a pack."
+            ),
+            parameters=[
+                ToolParameter(name="action", type="string", enum=["bind", "unbind", "list", "backfill"], description="Link or retry operation."),
+                ToolParameter(name="spec_id", type="string", description="Pack id from review_specs."),
+                ToolParameter(name="concept_id", type="string", required=False, description="Concept id required by bind and unbind."),
+                ToolParameter(name="mastery_path_id", type="string", required=False, description="Existing Mastery path id required by bind."),
+                ToolParameter(name="knowledge_point_id", type="string", required=False, description="Existing point id within that path required by bind."),
+                ToolParameter(name="source", type="string", required=False, enum=["manual", "auto"], description="Binding provenance, default manual."),
+                ToolParameter(name="confidence", type="number", required=False, minimum=0, maximum=1, description="Binding confidence from 0 to 1, default 1."),
+            ],
+        )
+
+    async def execute(self, **kwargs: Any) -> ToolResult:
+        tool = "review_link"
+        action = _text(kwargs.get("action"))
+        if action not in {"bind", "unbind", "list", "backfill"}:
+            return _soft(tool=tool, error="invalid_action", instruction="Choose bind, unbind, list or backfill.")
+        if action != "list" and not capabilities.current().attempts:
+            return _soft(tool=tool, error="link_write_disabled", instruction="Use list to inspect the effective links.")
+        spec_id = _text(kwargs.get("spec_id"))
+        try:
+            service = await asyncio.to_thread(_read_service if action == "list" else _service)
+            spec = await asyncio.to_thread(service.store.get_spec, spec_id)
+            if action == "backfill":
+                results = await projection.backfill_projections(service.store, spec.id)
+                return _result({
+                    "spec_id": spec.id, "results": results,
+                    "instruction": "Summarize the recorded projection outcomes for this batch.",
+                }, tool=tool)
+            if action in {"bind", "unbind"}:
+                concept_id = _text(kwargs.get("concept_id"))
+                spec.concept_by_id(concept_id)
+                if action == "bind":
+                    path_id = _text(kwargs.get("mastery_path_id"))
+                    point_id = _text(kwargs.get("knowledge_point_id"))
+                    source = kwargs.get("source", "manual")
+                    confidence = kwargs.get("confidence", 1.0)
+                    if (
+                        not path_id or not point_id or source not in ("manual", "auto")
+                        or type(confidence) not in (int, float) or not 0 <= confidence <= 1
+                    ):
+                        raise ValueError("bind requires a path id, point id, valid source and confidence from 0 to 1")
+                    valid, reason, *_ = await asyncio.to_thread(
+                        projection._linkage_preflight, path_id, point_id, now=time.time()
+                    )
+                    if not valid:
+                        return _soft(tool=tool, error=reason, instruction="Check the target path and its knowledge point.")
+                    await asyncio.to_thread(
+                        service.store.change_link, spec, concept_id, (path_id, point_id),
+                        source=source, confidence=confidence,
+                    )
+                else:
+                    await asyncio.to_thread(service.store.change_link, spec, concept_id, None)
+            overlays = await asyncio.to_thread(service.store.links_for_spec, spec.id)
+        except (KeyError, ValueError, VersionConflict, SpecNotFound, ReadOnlyStoreUnavailable) as exc:
+            return _soft(tool=tool, error="invalid_link_request", instruction=_clip(str(exc)) or "Check the pack and concept ids.")
+        except Exception as exc:
+            return _internal_failure(tool, exc)
+
+        links = []
+        for concept in spec.concepts:
+            target = effective_link(spec, concept, overlays)
+            if target is None:
+                continue
+            overlay = overlays.get(concept.id)
+            links.append({
+                "concept_id": concept.id, "mastery_path_id": target[0], "knowledge_point_id": target[1],
+                "source": overlay["source"] if overlay else "spec",
+                "confidence": overlay["confidence"] if overlay else None,
+                "updated_at": overlay["updated_at"] if overlay else None,
+            })
+        return _result({
+            "spec_id": spec.id, "links": links, "linked_concepts": len(links),
+            "total_concepts": len(spec.concepts),
+            "instruction": "Report the effective links. Removing an override restores any mapping from the pack.",
+        }, tool=tool)
 
 
 class ReviewHintTool(BaseTool):
@@ -656,6 +1049,12 @@ class ReviewHintTool(BaseTool):
                     default=1,
                     minimum=1,
                     maximum=2,
+                ),
+                ToolParameter(
+                    name="session_id",
+                    type="string",
+                    description="Session id from review_today for server-side hint accounting.",
+                    required=False,
                 ),
             ],
         )
@@ -756,6 +1155,20 @@ class ReviewHintTool(BaseTool):
         if verbatim or paraphrased:
             hint_text, source = _safe_hint(level, item, spec)
             fallback = True
+
+        if not capabilities.current().read_only:
+            try:
+                await asyncio.to_thread(
+                    service.store.record_hint,
+                    spec.id,
+                    _text(kwargs.get("session_id")),
+                    item.id,
+                    level,
+                )
+            except SessionConflict:
+                return _soft(tool=tool, error="session_conflict", instruction="Use the session id from review_today for this pack.")
+            except Exception as exc:
+                return _internal_failure(tool, exc)
 
         return _result(
             {
@@ -1239,6 +1652,11 @@ def _hint_fallback(spec: Any, item: Any) -> tuple[str, dict[str, Any] | None]:
     )
 
 
+class _JsonAnswerParameter(ToolParameter):
+    def to_schema(self) -> dict[str, Any]:
+        return {"description": self.description}
+
+
 class ReviewAttemptTool(BaseTool):
     """Record the learner's own rating; never compute one."""
 
@@ -1264,7 +1682,7 @@ class ReviewAttemptTool(BaseTool):
                 'example "just mark it as known" — decline: present the item '
                 "instead and explain that a rating without an attempt would "
                 "push their next review date into fiction. Recording it after "
-                "they answer is always fine."
+                "they answer is always fine. Call review_reveal for answer feedback."
             ),
             parameters=[
                 ToolParameter(
@@ -1345,6 +1763,8 @@ class ReviewAttemptTool(BaseTool):
                     ),
                     required=False,
                 ),
+                _JsonAnswerParameter(name="answer", type="object", required=False, sensitive=True, description="Optional learner answer as JSON, used for feedback only."),
+                ToolParameter(name="elapsed_ms", type="integer", required=False, default=0, minimum=0, maximum=MAX_ELAPSED_MS, description="Optional elapsed time in milliseconds."),
             ],
         )
 
@@ -1357,6 +1777,9 @@ class ReviewAttemptTool(BaseTool):
         rating = _text(kwargs.get("rating")).lower()
         session_id = _text(kwargs.get("session_id"))
         submission_id = _text(kwargs.get("submission_id"))
+        elapsed_ms = kwargs.get("elapsed_ms", 0)
+        if isinstance(elapsed_ms, bool) or not isinstance(elapsed_ms, int) or not 0 <= elapsed_ms <= MAX_ELAPSED_MS:
+            return _soft(tool=tool, error="invalid_elapsed_ms", instruction=f"Pass an integer from 0 to {MAX_ELAPSED_MS} or omit elapsed_ms.")
         raw_hints = kwargs.get("hints_used")
         hints_used = 0
         if raw_hints not in (None, ""):
@@ -1472,6 +1895,8 @@ class ReviewAttemptTool(BaseTool):
             hints_used=hints_used,
             confidence=confidence,
             learner_quote=learner_quote,
+            answer=kwargs.get("answer"),
+            elapsed_ms=elapsed_ms,
         )
         # Resolve the item here rather than catching ``KeyError`` around
         # ``attempt``: that method also raises ``KeyError`` when a stored spec
@@ -1495,6 +1920,13 @@ class ReviewAttemptTool(BaseTool):
             return _internal_failure(tool, exc)
 
         try:
+            if capabilities.require_shown_item() and not await asyncio.to_thread(
+                service.store.item_was_shown, spec.id, session_id, item_id
+            ):
+                return _soft(
+                    tool=tool, error="item_not_shown",
+                    instruction="Call review_today and use its session_id and item_id.",
+                )
             result = await asyncio.to_thread(service.attempt, spec.id, request)
         except SessionConflict:
             return _soft(
@@ -1527,7 +1959,7 @@ class ReviewAttemptTool(BaseTool):
         # reported in-band and never turns a saved answer into an error. This
         # mirrors the HTTP attempt route exactly, so a chat and the web UI
         # cannot disagree about one attempt.
-        projection = await project_attempt(service.store, spec.id, result)
+        projection = await project_attempt(service.store, spec.id, result, user_answer=request.answer)
         result["mastery_projection"] = projection
         if projection.get("status") in {"applied", "duplicate"}:
             try:
@@ -1569,7 +2001,7 @@ class ReviewAttemptTool(BaseTool):
                     "said 'good' — say that, because seeing the answer first is "
                     "not unaided recall."
                 )
-            if hints_used and str(result.get("rating")) != str(
+            if result.get("hints_used") and str(result.get("rating")) != str(
                 result.get("requested_rating")
             ):
                 instruction += (
@@ -1583,6 +2015,16 @@ class ReviewAttemptTool(BaseTool):
                 "preview the question."
             )
 
+        inline = capabilities.legacy_inline_answers()
+        feedback = {
+            name: result[name] for name in ("answer", "explanation", "study_aids", "correction")
+        } if inline else {"reveal_token": result["event_id"]}
+        if not inline and created:
+            instruction = (
+                "The learner's rating was recorded. Call review_reveal with this spec_id "
+                "and event_id to give feedback before moving to the next item. "
+                "Report any difference between requested_rating and rating."
+            )
         return _result(
             {
                 "spec_id": spec.id,
@@ -1597,6 +2039,8 @@ class ReviewAttemptTool(BaseTool):
                 "requested_rating": result.get("requested_rating", rating),
                 "retry": retry,
                 "hints_used": int(result.get("hints_used") or 0),
+                "correct": result["correct"],
+                "grader_basis": result["grader_basis"],
                 "confidence": result.get("confidence"),
                 "learner_quote": result.get("learner_quote"),
                 "next": {
@@ -1605,15 +2049,56 @@ class ReviewAttemptTool(BaseTool):
                     "interval_days": result.get("scheduled_interval_days"),
                 },
                 "predicted_retrievability": result.get("predicted_retrievability"),
-                "answer": result.get("answer"),
-                "explanation": result.get("explanation"),
-                "study_aids": result.get("study_aids"),
-                "correction": result.get("correction"),
+                **feedback,
                 "mastery_projection": projection,
                 "instruction": instruction,
             },
             tool=tool,
         )
+
+
+class ReviewRevealTool(BaseTool):
+    def get_definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="review_reveal",
+            description="Reveal feedback for a recorded attempt. Each successful call counts toward the session limit.",
+            parameters=[
+                ToolParameter(name="spec_id", type="string", description="Pack id from review_attempt."),
+                ToolParameter(name="event_id", type="string", description="Event id from review_attempt."),
+            ],
+        )
+
+    async def execute(self, **kwargs: Any) -> ToolResult:
+        tool = "review_reveal"
+        if blocked := capabilities.disabled(tool):
+            return _soft(tool=tool, error=f"{tool} is disabled", instruction=blocked)
+        service, spec, error = await _service_and_spec(
+            tool=tool, spec_id=kwargs.get("spec_id"),
+            missing_instruction="Use the pack id returned by review_attempt.",
+        )
+        if error is not None or service is None or spec is None:
+            return error or _failure("Could not resolve the pack.")
+        event_id = _text(kwargs.get("event_id"))
+        try:
+            event = await asyncio.to_thread(service.store.event_by_id, spec.id, event_id)
+            if event is None:
+                return _soft(tool=tool, error="event_not_found", instruction="Use the event_id from review_attempt for this pack.")
+            item = spec.item_by_id(event["item_id"])
+            correct = event.get("correct")
+            feedback = answer_feedback(spec, item, event["rating"], None if correct is None else bool(correct))
+            revealed = await asyncio.to_thread(
+                service.store.record_reveal, event, feedback, limit=capabilities.reveal_limit()
+            )
+            if revealed is None:
+                return _soft(tool=tool, error="reveal_limit", instruction="This session has reached its answer reveal limit.")
+        except KeyError:
+            return _soft(tool=tool, error="item_not_found", instruction="The attempted item is no longer in this pack.")
+        except Exception as exc:
+            return _internal_failure(tool, exc)
+        return _result({
+            "spec_id": spec.id, "event_id": event_id, "item_id": item.id, **revealed,
+            "instruction": "Give the learner this feedback before moving to the next item.",
+        }, tool=tool)
 
 
 class ReviewWeaknessTool(BaseTool):
@@ -2575,6 +3060,15 @@ class ReviewGenerateTool(BaseTool):
                     required=False,
                 ),
                 ToolParameter(
+                    name="wait_seconds",
+                    type="integer",
+                    description="Wait up to this many seconds on start or poll. Default 0 returns immediately; a pending job keeps running.",
+                    required=False,
+                    default=0,
+                    minimum=0,
+                    maximum=60,
+                ),
+                ToolParameter(
                     name="replace",
                     type="boolean",
                     description=(
@@ -2594,6 +3088,10 @@ class ReviewGenerateTool(BaseTool):
         blocked = capabilities.disabled(tool)
         if blocked:
             return _soft(tool=tool, error=f"{tool} is disabled", instruction=blocked)
+        wait_seconds = kwargs.get("wait_seconds", 0)
+        if type(wait_seconds) is not int or not 0 <= wait_seconds <= 60:
+            return _soft(tool=tool, error="invalid_wait_seconds", instruction="Pass an integer from 0 to 60 seconds.")
+        wait_until = asyncio.get_running_loop().time() + wait_seconds if wait_seconds else None
         kb_name = _text(kwargs.get("kb"))
         if not kb_name:
             return _soft(
@@ -2621,7 +3119,7 @@ class ReviewGenerateTool(BaseTool):
                     ),
                     job_id=job_id,
                 )
-            return await self._poll_job(tool, kb_name, job_id)
+            return await self._poll_job(tool, kb_name, job_id, wait_until=wait_until)
 
         try:
             generator = _generate_module()
@@ -2652,6 +3150,7 @@ class ReviewGenerateTool(BaseTool):
             # Only the literal boolean opts in: "true", 1 and other truthy
             # transport values must not replace an existing pack.
             replace=kwargs.get("replace") is True,
+            wait_until=wait_until,
         )
 
     async def _list_chapters(self, generator: Any, kb_name: str) -> ToolResult:
@@ -2724,6 +3223,7 @@ class ReviewGenerateTool(BaseTool):
         question_types: list[str],
         difficulty: str,
         replace: bool = False,
+        wait_until: float | None = None,
     ) -> ToolResult:
         tool = "review_generate"
         # Preflight the chapter before any job exists: an unknown knowledge
@@ -2793,6 +3293,12 @@ class ReviewGenerateTool(BaseTool):
 
         job_id = str(job.get("job_id") or "")
         reused = bool(job.get("reused"))
+        if wait_until is not None and job_id:
+            result = await self._poll_job(tool, kb_name, job_id, wait_until=wait_until, initial_job=job)
+            details = (result.metadata or {}).get(tool, {})
+            if details.get("status") not in {"queued", "running"} or details.get("stale"):
+                return result
+            job = details
         if reused:
             instruction = (
                 f"A generation for this chapter is already running (job "
@@ -2821,10 +3327,13 @@ class ReviewGenerateTool(BaseTool):
             tool=tool,
         )
 
-    async def _poll_job(self, tool: str, kb_name: str, job_id: str) -> ToolResult:
+    async def _poll_job(
+        self, tool: str, kb_name: str, job_id: str, *,
+        wait_until: float | None = None, initial_job: dict[str, Any] | None = None,
+    ) -> ToolResult:
         try:
             jobs = _jobs_module()
-            job = await asyncio.to_thread(jobs.load_job, job_id)
+            job = initial_job if initial_job is not None else await asyncio.to_thread(jobs.load_job, job_id)
         except Exception as exc:
             return _internal_failure(tool, exc)
         if job is None:
@@ -2853,6 +3362,20 @@ class ReviewGenerateTool(BaseTool):
                 ),
                 job_id=job_id,
             )
+
+        if wait_until is not None:
+            try:
+                async with asyncio.timeout_at(wait_until):
+                    while job.get("status") in {"queued", "running"} and not jobs.is_stale(job):
+                        await asyncio.sleep(0.25)
+                        updated = await asyncio.to_thread(jobs.load_job, job_id)
+                        if updated is None or updated.get("kb") not in {None, "", kb_name}:
+                            break
+                        job = updated
+            except TimeoutError:
+                pass
+            except Exception as exc:
+                return _internal_failure(tool, exc)
 
         status = str(job.get("status") or "unknown")
         payload: dict[str, Any] = {
@@ -3194,6 +3717,15 @@ __all__ = [
     "ReviewGenerateTool",
     "ReviewHintTool",
     "ReviewPlanTool",
+    "ReviewRevealTool",
+    "ReviewQualityTool",
+    "ReviewQualityDecisionTool",
+    "ReviewCorrectTool",
+    "ReviewMetricsTool",
+    "ReviewSessionTool",
+    "ReviewLinkTool",
+    "ReviewSessionPlanTool",
+    "ReviewArtifactStatusTool",
     "ReviewSpecsTool",
     "ReviewTodayTool",
     "ReviewWeaknessTool",
